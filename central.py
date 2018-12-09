@@ -6,6 +6,70 @@ yf.pdr_override() # <== that's all it takes :-)
 
 pd.options.mode.chained_assignment = None
 
+def ema(stock, period, code):
+    if code == "EMA":
+        if period < len(stock.index):
+            for i in range(period, len(stock.index)):
+
+                closingPrices = [stock['Adj Close'][i - j] for j in range(period, 0, -1)]
+
+                sma = sum(closingPrices)/period
+
+                multiplier = 2.0/(period + 1)
+                stock['EMA' + str(period)][i] = sma
+
+                if i != period:
+                    stock['EMA' + str(period)][i] = (stock['Adj Close'][i] - stock['EMA' + str(period)][i - 1]) * multiplier + stock['EMA' + str(period)][i - 1]
+            return stock
+        else:
+            for i in range(len(stock.index)):
+                closingPrices = [stock['Adj Close'][j] for j in range(len(stock.index))]
+                sma = sum(closingPrices)/len(stock.index)
+                stock['EMA' + str(period)][i] = sma
+            return stock
+    else:
+        if period < len(stock.index):
+            for i in range(period, len(stock.index)):
+                macdList = [stock['MACD'][i - j] for j in range(period, 0, -1)]
+                sma = sum(macdList)/period
+                multiplier = 2.0/(period + 1)
+                stock['MACD Signal'][i] = sma
+                if i != period:
+                    if stock['EMA12'][i] != 0 and stock['EMA26'][i] != 0:
+                        stock['MACD Signal'][i] = ((stock['EMA12'][i] - stock['EMA26'][i]) - stock['MACD Signal'][i - 1]) * multiplier + stock['MACD Signal'][i - 1]
+                    else:
+                        stock['MACD Signal'][i] = 0
+            return stock
+        else:
+            for i in range(len(stock.index)):
+                macdList = [stock['MACD'][i - j] for j in range(period, 0, -1)]
+                sma = sum(macdList)/period
+                stock['MACD Signal'][i] = sma
+            return stock
+
+
+
+def macd(stock):
+    for i in range(len(stock.index)):
+        if stock['EMA12'][i] != 0 and stock['EMA26'][i] != 0:
+            stock['MACD'][i] = stock['EMA12'][i] - stock['EMA26'][i]
+        else:
+            stock['MACD'][i] = 0
+    return stock
+
+def rsi(stock, period):
+    positiveSums = sum(stock['pctChange'][i] for i in range(period) if stock['pctChange'][i] > 0)
+    negativeSums = sum(stock['pctChange'][i] for i in range(period) if stock['pctChange'][i] < 0)
+    for i in range(period, len(stock.index)):
+        avgGain = sum(stock['pctChange'][i - j] for j in range(period, 0, -1) if stock['pctChange'][i - j] > 0)/period
+        avgLoss = -1 * sum(stock['pctChange'][i - j] for j in range(period, 0, -1) if stock['pctChange'][i - j] < 0)/period
+        stock['RSI'][i] = 100 - (100/(1 + avgGain/avgLoss))
+        # stock['RSI'][i] = avgLoss
+    # for i in range(len(stock.index)):
+        # if i < period:
+        #     sum += stock['pctChange']
+        # else:
+    return stock
 # Converts continuous price data to discrete labels and builds out emission-to-emission
 # probability matrix
 def convert(percentage, probabilities):
@@ -29,7 +93,7 @@ def convert(percentage, probabilities):
 ticker = "BABA"
 # download dataframe
 # data = pdr.get_data_yahoo("BABA", start="2018-01-01", end="2018-11-26")
-stock = pdr.get_data_yahoo(ticker, start="2018-11-15", end="2018-12-07")
+stock = pdr.get_data_yahoo(ticker, start="2010-01-01", end="2018-12-07")
 # stock = pdr.get_data_yahoo("TSLA").loc["2018"]
 
 # Assign `Adj Close` to `daily_close`
@@ -49,6 +113,11 @@ stock.fillna(0, inplace=True)
 
 
 stock['delta'] = "Test"
+stock['EMA12'] = 0.0
+stock['EMA26'] = 0.0
+stock['MACD'] = 0.0
+stock['MACD Signal'] = 0.0
+stock['RSI'] = 0.0
 probabilities = [0, 0, 0, 0, 0]
 transitions = [[0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0]]
 transitionsDict = {}
@@ -87,61 +156,111 @@ for i in range(0, len(stock.index)):
             sums += 1
 
         # Not sure why there is a leakage here
-        else:
-            print(stock['delta'][i - 1])
+        # else:
+            # print(stock['delta'][i - 1])
     probabilities = result[1]
     # stock.set_value(i, 'delta', convert(stock.iloc[i]['pctChange']))
 
 probabilitiesPct = []
-sum = probabilities[0] + probabilities[1] + probabilities[2] + probabilities[3] + probabilities[4]
-probabilitiesPct = [probabilities[0]/sum, probabilities[1]/sum, probabilities[2]/sum, probabilities[3]/sum, probabilities[4]/sum]
+summed = probabilities[0] + probabilities[1] + probabilities[2] + probabilities[3] + probabilities[4]
+probabilitiesPct = [probabilities[0]/summed, probabilities[1]/summed, probabilities[2]/summed, probabilities[3]/summed, probabilities[4]/summed]
 
 
-# Currently calculating probability of same key[0] given key[1] (sums to 1)
+# # Currently calculating probability of same key[0] given key[1] (sums to 1)
+# newSum = 0
+# for key in [('Very Much Up', 'Very Much Up'), ('Very Much Up', 'Up'), ('Very Much Up', 'Neutral'), ('Very Much Up', 'Down'), ('Very Much Up', 'Very Much Down')]:
+#     newSum += transitionsDict[key]
+# for key in [('Very Much Up', 'Very Much Up'), ('Very Much Up', 'Up'), ('Very Much Up', 'Neutral'), ('Very Much Up', 'Down'), ('Very Much Up', 'Very Much Down')]:
+#     if newSum != 0:
+#         transitionsDict[key] = transitionsDict[key]/newSum
+#     else:
+#         transitionsDict[key] = 0
+#
+# newSum = 0
+# for key in [('Up', 'Very Much Up'), ('Up', 'Up'), ('Up', 'Neutral'), ('Up', 'Down'), ('Up', 'Very Much Down')]:
+#     newSum += transitionsDict[key]
+# for key in [('Up', 'Very Much Up'), ('Up', 'Up'), ('Up', 'Neutral'), ('Up', 'Down'), ('Up', 'Very Much Down')]:
+#     if newSum != 0:
+#         transitionsDict[key] = transitionsDict[key]/newSum
+#     else:
+#         transitionsDict[key] = 0
+#
+# newSum = 0
+# for key in [('Neutral', 'Very Much Up'), ('Neutral', 'Up'), ('Neutral', 'Neutral'), ('Neutral', 'Down'), ('Neutral', 'Very Much Down')]:
+#     newSum += transitionsDict[key]
+# for key in [('Neutral', 'Very Much Up'), ('Neutral', 'Up'), ('Neutral', 'Neutral'), ('Neutral', 'Down'), ('Neutral', 'Very Much Down')]:
+#     if newSum != 0:
+#         transitionsDict[key] = transitionsDict[key]/newSum
+#     else:
+#         transitionsDict[key] = 0
+#
+# newSum = 0
+# for key in [('Down', 'Very Much Up'), ('Down', 'Up'), ('Down', 'Neutral'), ('Down', 'Down'), ('Down', 'Very Much Down')]:
+#     newSum += transitionsDict[key]
+# for key in [('Down', 'Very Much Up'), ('Down', 'Up'), ('Down', 'Neutral'), ('Down', 'Down'), ('Down', 'Very Much Down')]:
+#     if newSum != 0:
+#         transitionsDict[key] = transitionsDict[key]/newSum
+#     else:
+#         transitionsDict[key] = 0
+#
+# newSum = 0
+# for key in [('Very Much Down', 'Very Much Up'), ('Very Much Down', 'Up'), ('Very Much Down', 'Neutral'), ('Very Much Down', 'Down'), ('Very Much Down', 'Very Much Down')]:
+#     newSum += transitionsDict[key]
+# for key in [('Very Much Down', 'Very Much Up'), ('Very Much Down', 'Up'), ('Very Much Down', 'Neutral'), ('Very Much Down', 'Down'), ('Very Much Down', 'Very Much Down')]:
+#     if newSum != 0:
+#         transitionsDict[key] = transitionsDict[key]/newSum
+#     else:
+#         transitionsDict[key] = 0
+
+
 newSum = 0
-for key in [('Very Much Up', 'Very Much Up'), ('Very Much Up', 'Up'), ('Very Much Up', 'Neutral'), ('Very Much Up', 'Down'), ('Very Much Up', 'Very Much Down')]:
+for key in [('Very Much Up', 'Very Much Up'), ('Up', 'Very Much Up'), ('Neutral', 'Very Much Up'), ('Down', 'Very Much Up'), ('Very Much Down', 'Very Much Up')]:
     newSum += transitionsDict[key]
-for key in [('Very Much Up', 'Very Much Up'), ('Very Much Up', 'Up'), ('Very Much Up', 'Neutral'), ('Very Much Up', 'Down'), ('Very Much Up', 'Very Much Down')]:
+for key in [('Very Much Up', 'Very Much Up'), ('Up', 'Very Much Up'), ('Neutral', 'Very Much Up'), ('Down', 'Very Much Up'), ('Very Much Down', 'Very Much Up')]:
     if newSum != 0:
         transitionsDict[key] = transitionsDict[key]/newSum
     else:
         transitionsDict[key] = 0
 
 newSum = 0
-for key in [('Up', 'Very Much Up'), ('Up', 'Up'), ('Up', 'Neutral'), ('Up', 'Down'), ('Up', 'Very Much Down')]:
+for key in [('Very Much Up', 'Up'), ('Up', 'Up'), ('Neutral', 'Up'), ('Down', 'Up'), ('Very Much Down', 'Up')]:
     newSum += transitionsDict[key]
-for key in [('Up', 'Very Much Up'), ('Up', 'Up'), ('Up', 'Neutral'), ('Up', 'Down'), ('Up', 'Very Much Down')]:
+for key in [('Very Much Up', 'Up'), ('Up', 'Up'), ('Neutral', 'Up'), ('Down', 'Up'), ('Very Much Down', 'Up')]:
     if newSum != 0:
         transitionsDict[key] = transitionsDict[key]/newSum
     else:
         transitionsDict[key] = 0
 
 newSum = 0
-for key in [('Neutral', 'Very Much Up'), ('Neutral', 'Up'), ('Neutral', 'Neutral'), ('Neutral', 'Down'), ('Neutral', 'Very Much Down')]:
+for key in [('Very Much Up', 'Neutral'), ('Up', 'Neutral'), ('Neutral', 'Neutral'), ('Down', 'Neutral'), ('Very Much Down', 'Neutral')]:
     newSum += transitionsDict[key]
-for key in [('Neutral', 'Very Much Up'), ('Neutral', 'Up'), ('Neutral', 'Neutral'), ('Neutral', 'Down'), ('Neutral', 'Very Much Down')]:
+for key in [('Very Much Up', 'Neutral'), ('Up', 'Neutral'), ('Neutral', 'Neutral'), ('Down', 'Neutral'), ('Very Much Down', 'Neutral')]:
     if newSum != 0:
         transitionsDict[key] = transitionsDict[key]/newSum
     else:
         transitionsDict[key] = 0
 
 newSum = 0
-for key in [('Down', 'Very Much Up'), ('Down', 'Up'), ('Down', 'Neutral'), ('Down', 'Down'), ('Down', 'Very Much Down')]:
+for key in [('Very Much Up', 'Down'), ('Up', 'Down'), ('Neutral', 'Down'), ('Down', 'Down'), ('Very Much Down', 'Down')]:
     newSum += transitionsDict[key]
-for key in [('Down', 'Very Much Up'), ('Down', 'Up'), ('Down', 'Neutral'), ('Down', 'Down'), ('Down', 'Very Much Down')]:
+for key in [('Very Much Up', 'Down'), ('Up', 'Down'), ('Neutral', 'Down'), ('Down', 'Down'), ('Very Much Down', 'Down')]:
     if newSum != 0:
         transitionsDict[key] = transitionsDict[key]/newSum
     else:
         transitionsDict[key] = 0
 
 newSum = 0
-for key in [('Very Much Down', 'Very Much Up'), ('Very Much Down', 'Up'), ('Very Much Down', 'Neutral'), ('Very Much Down', 'Down'), ('Very Much Down', 'Very Much Down')]:
+for key in [('Very Much Up', 'Very Much Down'), ('Up', 'Very Much Down'), ('Neutral', 'Very Much Down'), ('Down', 'Very Much Down'), ('Very Much Down', 'Very Much Down')]:
     newSum += transitionsDict[key]
-for key in [('Very Much Down', 'Very Much Up'), ('Very Much Down', 'Up'), ('Very Much Down', 'Neutral'), ('Very Much Down', 'Down'), ('Very Much Down', 'Very Much Down')]:
+for key in [('Very Much Up', 'Very Much Down'), ('Up', 'Very Much Down'), ('Neutral', 'Very Much Down'), ('Down', 'Very Much Down'), ('Very Much Down', 'Very Much Down')]:
     if newSum != 0:
         transitionsDict[key] = transitionsDict[key]/newSum
     else:
         transitionsDict[key] = 0
+
+
+
+
 # stock['delta'].apply(convert)
 
 # print(probabilities)
@@ -157,6 +276,14 @@ print(probabilitiesPct)
 print("Transition Record:")
 print(transitions)
 print(transitionsDict)
+
+stock=ema(stock, 12, 'EMA')
+stock=ema(stock, 26, 'EMA')
+stock=macd(stock)
+stock=ema(stock, 9, 'MACD')
+stock=rsi(stock, 14)
+
+print(stock)
 #
 # # Daily log returns
 # daily_log_returns = np.log(daily_close.pct_change()+1)
