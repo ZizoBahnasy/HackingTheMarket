@@ -58,18 +58,31 @@ def macd(stock):
     return stock
 
 def rsi(stock, period):
-    positiveSums = sum(stock['pctChange'][i] for i in range(period) if stock['pctChange'][i] > 0)
-    negativeSums = sum(stock['pctChange'][i] for i in range(period) if stock['pctChange'][i] < 0)
+    stock['RSI'][0] = 50
+    gainsList = []
+    lossesList = []
+    for i in range(1, period):
+        avgGain = sum(stock['pctChange'][i - j + 1] for j in range(i, 0, -1) if stock['pctChange'][i - j + 1] > 0)/i
+        avgLoss = -1 * sum(stock['pctChange'][i - j + 1] for j in range(i, 0, -1) if stock['pctChange'][i - j + 1] < 0)/i
+        if avgGain == 0:
+            avgGain = 1
+        if avgLoss == 0:
+            avgLoss = 1
+        gainsList.append(avgGain)
+        lossesList.append(avgLoss)
+        stock['RSI'][i] = 100 - (100/(1 + avgGain/avgLoss))
+
+
     for i in range(period, len(stock.index)):
         avgGain = sum(stock['pctChange'][i - j] for j in range(period, 0, -1) if stock['pctChange'][i - j] > 0)/period
+        gainsList.append(avgGain)
         avgLoss = -1 * sum(stock['pctChange'][i - j] for j in range(period, 0, -1) if stock['pctChange'][i - j] < 0)/period
-        stock['RSI'][i] = 100 - (100/(1 + avgGain/avgLoss))
-        # stock['RSI'][i] = avgLoss
-    # for i in range(len(stock.index)):
-        # if i < period:
-        #     sum += stock['pctChange']
-        # else:
+        lossesList.append(avgLoss)
+
+        stock['RSI'][i] = 100 - (100/(1 + (gainsList[i - 1] * 13 + stock['pctChange'][i])/(lossesList[i - 1] * 13 + stock['pctChange'][i])))
+
     return stock
+    
 # Converts continuous price data to discrete labels and builds out emission-to-emission
 # probability matrix
 def convert(percentage, probabilities):
