@@ -83,6 +83,87 @@ def rsi(stock, period):
 
     return stock
     
+def stochastic(stock, period):
+    lows = []
+    highs = []
+    high = 0.0
+    low = 0.0
+    k = 0.0
+    kList = [50.0]
+
+    for i in range(1, period):
+        lows = [stock['Low'][i - j] for j in range(i, 0, -1)]
+        highs = [stock['High'][i - j] for j in range(i, 0, -1)]
+        low = min(lows)
+        high = max(highs)
+        k = 100 * (stock['Adj Close'][i - 1] - low)/(high - low)
+        kList.append(k)
+        stock['Stochastic'][i] = k
+
+    # for i in range(period, len(stock.index)):
+    #     avgGain = sum(stock['pctChange'][i - j] for j in range(period, 0, -1) if stock['pctChange'][i - j] > 0)/period
+    #     gainsList.append(avgGain)
+    #     avgLoss = -1 * sum(stock['pctChange'][i - j] for j in range(period, 0, -1) if stock['pctChange'][i - j] < 0)/period
+    #     lossesList.append(avgLoss)
+    #
+    #     stock['RSI'][i] = 100 - (100/(1 + (gainsList[i - 1 - (period - 1)] * 13 + stock['pctChange'][i])/(lossesList[i - 1 - (period - 1)] * 13 + stock['pctChange'][i])))
+    for i in range(period, len(stock.index)):
+        lows = [stock['Low'][i - j] for j in range(period, 0, -1)]
+        highs = [stock['High'][i - j] for j in range(period, 0, -1)]
+        low = min(lows)
+        high = max(highs)
+
+        k = 100 * (stock['Adj Close'][i - 1] - low)/(high - low)
+        kList.append(k)
+        stock['Stochastic'][i] = k
+
+    for i in range(period, len(stock.index)):
+        stock['Stochastic SMA'][i] = sum(kList[i - j] for j in range(3))/3
+
+    return stock
+
+def analyze(stock):
+    # table = pd.DataFrame()
+
+
+    dataDict = {}
+    # print(df)
+    for i in range(5):
+        dataDict['P(R = ' + str(i) + ')'] = [0.0]
+    for i in range(5):
+        dataDict['P(S = ' + str(i) + ')'] = [0.0]
+    for i in range(2):
+        dataDict['P(M = ' + str(i) + ')'] = [0.0]
+        # table['P(R = ' + str(i) + ')'] = 10.0
+
+    for i in range(len(stock.index)):
+        if stock["RSI"][i] < 20.0:
+            dataDict['P(R = 0)'][0] += 1.0
+        elif stock["RSI"][i] < 40.0:
+            dataDict['P(R = 1)'][0] += 1.0
+        elif stock["RSI"][i] < 60.0:
+            dataDict['P(R = 2)'][0] += 1.0
+        elif stock["RSI"][i] < 80.0:
+            dataDict['P(R = 3)'][0] += 1.0
+        else:
+            dataDict['P(R = 4)'][0] += 1.0
+        if stock["Stochastic"][i] < 20.0:
+            dataDict['P(S = 0)'][0] += 1.0
+        elif stock["Stochastic"][i] < 40.0:
+            dataDict['P(S = 1)'][0] += 1.0
+        elif stock["Stochastic"][i] < 60.0:
+            dataDict['P(S = 2)'][0] += 1.0
+        elif stock["Stochastic"][i] < 80.0:
+            dataDict['P(S = 3)'][0] += 1.0
+        else:
+            dataDict['P(S = 4)'][0] += 1.0
+        if stock['MACD'][i] >= stock['MACD Signal'][i]:
+            dataDict['P(M = 1)'][0] += 1.0
+        else:
+            dataDict['P(M = 0)'][0] += 1.0
+    df = pd.DataFrame(data=dataDict)
+    # df = pd.DataFrame(data=dataDict)
+    print(df)
 # Converts continuous price data to discrete labels and builds out emission-to-emission
 # probability matrix
 def convert(percentage, probabilities):
