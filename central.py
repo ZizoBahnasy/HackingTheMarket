@@ -8,6 +8,8 @@ import csv
 import datetime
 from datetime import date, timedelta
 import numpy as np
+from sklearn import metrics
+from sklearn.naive_bayes import GaussianNB
 
 
 import fix_yahoo_finance as yf, numpy as np
@@ -259,7 +261,7 @@ def dictSort(oldDict):
                     key = "P(D = " + delta + " | R = " + str(rsi) + ", S = " + str(stochastic) + ", M = " + str(macd) + ")"
                     if key in oldDict:
                         sortedDict[key] = oldDict[key]
-    pd.DataFrame(sortedDict, index=[0]).to_csv('FinalConditionalProbabilities.csv', index=False)
+    pd.DataFrame(sortedDict, index=[0]).to_csv(ticker + 'FinalConditionalProbabilities.csv', index=False)
     return sortedDict
 
 def convertRSI(percentage):
@@ -366,11 +368,13 @@ def stockHistory(symbol, startDate, endDate):
         transitionsDict[key] = 0
 
     sums = 0
+    classes = []
 
     for i in range(0, len(stock.index)):
         # test.append(stock.iloc[i]['pctChange'])
         result = convert(stock.iloc[i]['pctChange'], probabilities)
         stock['delta'][i] = result[0]
+        classes.append(result[2])
         if i > 0:
             transitionsDict[(result[0], stock['delta'][i - 1])] += 1
             if stock['delta'][i - 1] is "Very Much Up":
@@ -406,8 +410,9 @@ def stockHistory(symbol, startDate, endDate):
     stock=stochastic(stock, 14)
 
     # print(stock)
-    stock.to_csv(symbol + "-.csv")
-    return stock
+    stock.to_csv(symbol + ".csv")
+    return (stock, classes)
+
 
 def predictor(stock, conditionalProbabilityDistribution, period, date):
     dateDate = datetime.datetime.strptime(date, '%Y-%m-%d').date()
@@ -437,6 +442,7 @@ def predictor(stock, conditionalProbabilityDistribution, period, date):
             realAction = stock['delta'][date.strftime('%Y-%m-%d')]
             print("True action: " + realAction)
             # if prediction in realAction:
+
             if 'Up' in prediction and 'Up' in realAction:
                 return (1.0, 1.0)
             elif 'Down' in prediction and 'Down' in realAction:
@@ -455,10 +461,10 @@ def testing():
     startDate = '2018-01-01'
     predictionDateString = startDate
     predictionDate = datetime.datetime.strptime(predictionDateString, '%Y-%m-%d').date()
-    finalPredictionDate = '2018-12-10'
+    finalPredictionDate = '2018-12-11'
     period = 1
-    stockHistories = stockHistory(ticker, "2010-01-01", "2018-12-10")
-    pastHistory = stockHistory(ticker, "2010-01-01", "2017-12-31")
+    stockHistories = stockHistory(ticker, "2010-01-01", "2018-12-31")[0]
+    pastHistory = stockHistory(ticker, "2010-01-01", "2017-12-31")[0]
     conditionalProbabilityDistribution = jointAnalysis(pastHistory, period)
 
     # if predictionDate.weekday() <= 4:
@@ -473,19 +479,6 @@ def testing():
     print(total)
     print(correct/total)
 
-    # yesterday = prev_weekday(datetime.datetime.strptime(predictionDate, '%Y-%m-%d').date(), period)
-    # print(yesterday)
-    # print(next_weekday(datetime.datetime.strptime(predictionDate, '%Y-%m-%d').date(), period))
-    # # for i in range(np.busday_count(startDate, finalPredictionDate)):
-    #     # yesterday = prev_weekday(datetime.datetime.strptime(predictionDate, '%Y-%m-%d').date(), period)
-    #
-    #
-    #
-    #
-    #
-    #
-
-
 predictionDate = "2018-01-02"
 forecastingPeriod = 1
 endDate = prev_weekday(datetime.datetime.strptime(predictionDate, '%Y-%m-%d').date(), forecastingPeriod)
@@ -493,6 +486,51 @@ print(endDate)
 # stock = pdr.get_data_yahoo(ticker, start="2010-01-01", end=endDate)
 
 testing()
+
+""" Naives Bayes Classification """
+
+stock, classes = stockHistory(ticker, "2010-01-01", "2018-12-31")
+
+# drop high, low, close, and EMA columns since not useful for NB
+optstock = stock.drop(['High','Low','Close','delta','EMA12','EMA26'], axis=1)
+# optstock = optstock.drop(optstock.index[0:30])
+
+# Delete last row since can have NaN values
+optstock=optstock.drop(optstock.index[-1])
+classes = classes[:-1]
+
+# get 80% index to divide data into training and testing sets for fitting
+cutat = int(len(optstock.index) / 10) * 8
+trainingX=optstock.drop(optstock.index[cutat:])
+testX=optstock.drop(optstock.index[0:cutat])
+# trainingX = optstock[:cutat]
+# testX = optstock[cutat:]
+
+trainingclasses = classes[:cutat]
+testclasses = classes[cutat:]
+# print(len(testclasses))
+# print(stock.head())
+
+# Use sklearn if possible to fit the model, test it, and get its accuracy. If not, implement our own NB and CPTs.
+NB = GaussianNB()
+# print(optstock)
+# print(trainingX)
+# print(trainingclasses)
+NB.fit(trainingX, trainingclasses)
+predictedclasses = NB.predict(testX)
+
+print("Accuracy:")
+print (metrics.accuracy_score(testclasses, predictedclasses))
+
+# If we implement the NB on our own:
+# 1) Training: count the number of rows with each of the 5 perc_change classes
+#              build a dictionary with all the possible values/intervals for each feature (that requires discretizing the features as well)
+#              count the occurences of each features interval in each perc_change class
+#              fit the model using the same equation as in q5 of NaiveBayes.py
+#              test it on (testX, predictedclasses) in the same way as q6
+
+
+##$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$##
 # stock = pdr.get_data_yahoo("TSLA").loc["2018"]
 #
 # # Assign `Adj Close` to `daily_close`
