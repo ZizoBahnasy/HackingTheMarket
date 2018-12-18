@@ -11,6 +11,8 @@ import numpy as np
 from sklearn import metrics
 from sklearn.naive_bayes import GaussianNB
 
+import random
+
 
 import fix_yahoo_finance as yf, numpy as np
 yf.pdr_override() # <== that's all it takes :-)
@@ -19,6 +21,8 @@ pd.options.mode.chained_assignment = None
 US_BUSINESS_DAY = CustomBusinessDay(calendar=USFederalHolidayCalendar())
 
 ticker = "BABA"
+
+deltaList = ["Very Much Up", "Up", "Neutral", "Down", "Very Much Down"]
 
 def ema(stock, period, code):
     if code == "EMA":
@@ -53,15 +57,22 @@ def ema(stock, period, code):
                         stock['MACD Signal'][i] = ((stock['EMA12'][i] - stock['EMA26'][i]) - stock['MACD Signal'][i - 1]) * multiplier + stock['MACD Signal'][i - 1]
                     else:
                         stock['MACD Signal'][i] = 0
-            return stock
+
+                if stock['MACD'][i] < stock['MACD Signal'][i] and stock['MACD'][i - 1] < stock['MACD Signal'][i - 1]:
+                    stock['MACD Trend'][i] = 1.0
+                if stock['MACD'][i] < stock['MACD Signal'][i] and stock['MACD'][i - 1] > stock['MACD Signal'][i - 1]:
+                    stock['MACD Trend'][i] = 2.0
+                if stock['MACD'][i] > stock['MACD Signal'][i] and stock['MACD'][i - 1] < stock['MACD Signal'][i - 1]:
+                    stock['MACD Trend'][i] = 3.0
+                if stock['MACD'][i] > stock['MACD Signal'][i] and stock['MACD'][i - 1] > stock['MACD Signal'][i - 1]:
+                    stock['MACD Trend'][i] = 4.0
         else:
             for i in range(len(stock.index)):
                 macdList = [stock['MACD'][i - j] for j in range(period, 0, -1)]
                 sma = sum(macdList)/period
                 stock['MACD Signal'][i] = sma
-            return stock
 
-
+        return stock
 
 def macd(stock):
     for i in range(len(stock.index)):
@@ -69,6 +80,8 @@ def macd(stock):
             stock['MACD'][i] = stock['EMA12'][i] - stock['EMA26'][i]
         else:
             stock['MACD'][i] = 0
+
+
     return stock
 
 def rsi(stock, period):
@@ -101,6 +114,16 @@ def rsi(stock, period):
         if value > 100:
             value = 100
         stock['RSI'][i] = value
+
+        if stock['RSI'][i] < 50.0 and stock['RSI'][i - 1] < 50.0:
+            stock['RSI Trend'][i] = 1.0
+        if stock['RSI'][i] < 50.0 and stock['RSI'][i - 1] >= 50.0:
+            stock['RSI Trend'][i] = 2.0
+        if stock['RSI'][i] >= 50.0 and stock['RSI'][i - 1] < 50.0:
+            stock['RSI Trend'][i] = 3.0
+        if stock['RSI'][i] >= 50.0 and stock['RSI'][i - 1] >= 50.0:
+            stock['RSI Trend'][i] = 4.0
+
 
     return stock
 
@@ -145,6 +168,59 @@ def stochastic(stock, period):
     for i in range(period, len(stock.index)):
         stock['Stochastic SMA'][i] = sum(kList[i - j] for j in range(3))/3
 
+    return stock
+
+def consecutive(stock):
+    twoDayMatch = 0.0
+    twoDayTotal = 0.0
+    threeDayMatch = 0.0
+    threeDayTotal = 0.0
+    fourDayTotal = 0.0
+    marginalList = []
+    partialTwoDayList = []
+    partialThreeDayList = []
+    partialFourDayList = []
+    consecutiveTwoDayList = []
+    consecutiveThreeDayList = []
+    consecutiveFourDayList = []
+    for i in range(29, len(stock.index) - 1):
+        marginalList.append(stock['delta'][i])
+        partialTwoDayList.append((stock['delta'][i], stock['delta'][i - 1]))
+        if stock['delta'][i] == stock['delta'][i - 1]:
+            stock['Consecutive'][i] += 1
+            consecutiveTwoDayList.append((stock['delta'][i - 1], stock['delta'][i], stock['delta'][i + 1]))
+            if stock['delta'][i - 1] == stock['delta'][i - 2]:
+                stock['Consecutive'][i] += 1
+                consecutiveThreeDayList.append((stock['delta'][i - 2], stock['delta'][i - 1], stock['delta'][i], stock['delta'][i + 1]))
+                if stock['delta'][i - 2] == stock['delta'][i - 3]:
+                    stock['Consecutive'][i] += 1
+                    consecutiveFourDayList.append((stock['delta'][i - 3], stock['delta'][i - 2], stock['delta'][i - 1], stock['delta'][i], stock['delta'][i + 1]))
+    # print(consecutiveTwoDayList)
+    # print(consecutiveThreeDayList)
+    twoDayCounter = collections.Counter(consecutiveTwoDayList)
+    threeDayCounter = collections.Counter(consecutiveThreeDayList)
+    fourDayCounter = collections.Counter(consecutiveFourDayList)
+    twoDayProbabilities = {}
+    threeDayProbabilities = {}
+    fourDayProbabilities = {}
+    for key, value in twoDayCounter.items():
+        value = (value * 1.0)/len(consecutiveTwoDayList)
+        twoDayProbabilities[key] = value
+    for key, value in threeDayCounter.items():
+        value = (value * 1.0)/len(consecutiveThreeDayList)
+        threeDayProbabilities[key] = value
+    for key, value in fourDayCounter.items():
+        value = (value * 1.0)/len(consecutiveFourDayList)
+        fourDayProbabilities[key] = value
+    # print("Two: " + str(twoDayCounter))
+    # print("Three: " + str(threeDayCounter))
+    # print("Four: " + str(fourDayCounter))
+    # print(twoDayProbabilities)
+    # print(threeDayProbabilities)
+    # print(fourDayProbabilities)
+    pd.DataFrame(twoDayProbabilities, index = [0]).to_csv(ticker + 'twoDays.csv', index=False)
+    pd.DataFrame(threeDayProbabilities, index = [0]).to_csv(ticker + 'threeDays.csv', index=False)
+    pd.DataFrame(fourDayProbabilities, index = [0]).to_csv(ticker + 'fourDays.csv', index=False)
     return stock
 
 def analyze(stock):
@@ -214,8 +290,8 @@ def jointAnalysis(stock, daysAhead):
     joints = []
     partialJoints = []
     for i in range(26, len(stock.index) - daysAhead):
-        joints.append((stock['delta'][i + daysAhead], convertRSI(stock['RSI'][i]), convertRSI(stock['Stochastic'][i]), convertMACDSignal(stock['MACD'][i] - stock['MACD Signal'][i])))
-        partialJoints.append((convertRSI(stock['RSI'][i]), convertRSI(stock['Stochastic'][i]), convertMACDSignal(stock['MACD'][i] - stock['MACD Signal'][i])))
+        joints.append((stock['delta'][i + daysAhead], convertRSI(stock['RSI'][i]), convertRSI(stock['Stochastic'][i]), convertMACDSignal(stock['MACD'][i] - stock['MACD Signal'][i]), stock['Consecutive'][i]))
+        partialJoints.append((convertRSI(stock['RSI'][i]), convertRSI(stock['Stochastic'][i]), convertMACDSignal(stock['MACD'][i] - stock['MACD Signal'][i]), stock['Consecutive'][i]))
     counter = collections.Counter(joints)
     partialCounter = collections.Counter(partialJoints)
     probabilities = {}
@@ -248,19 +324,21 @@ def conditionalProbabilities(jointDistribution, partialJointDistribution):
         rKey = "R = " + str(key[1])
         sKey = "S = " + str(key[2])
         mKey = "M = " + str(key[3])
-        conditionals["P(D = " + str(key[0]) + " | " + rKey + ", " + sKey + ", " + mKey + ")"] = value/(partialJointDistribution[(key[1], key[2], key[3])])
+        cKey = "C = " + str(key[4])
+        conditionals["P(D = " + str(key[0]) + " | " + rKey + ", " + sKey + ", " + mKey + ", " + cKey + ")"] = value/(partialJointDistribution[(key[1], key[2], key[3], key[4])])
     pd.DataFrame(conditionals, index=[0]).to_csv(ticker + 'conditionalProbabilities.csv', index=False)
     return dictSort(conditionals)
 
 def dictSort(oldDict):
     sortedDict = {}
-    for macd in range(2):
-        for stochastic in range(5):
-            for rsi in range(5):
-                for delta in ["Very Much Up", "Up", "Neutral", "Down", "Very Much Down"]:
-                    key = "P(D = " + delta + " | R = " + str(rsi) + ", S = " + str(stochastic) + ", M = " + str(macd) + ")"
-                    if key in oldDict:
-                        sortedDict[key] = oldDict[key]
+    for consecutiveDays in range(1, 4):
+        for macd in range(2):
+            for stochastic in range(5):
+                for rsi in range(5):
+                    for delta in deltaList:
+                        key = "P(D = " + delta + " | R = " + str(rsi) + ", S = " + str(stochastic) + ", M = " + str(macd) + ", C = " + str(consecutiveDays) + ")"
+                        if key in oldDict:
+                            sortedDict[key] = oldDict[key]
     pd.DataFrame(sortedDict, index=[0]).to_csv(ticker + 'FinalConditionalProbabilities.csv', index=False)
     return sortedDict
 
@@ -270,24 +348,13 @@ def convertRSI(percentage):
         value = 4
     return value
 
-# def convertRSIStochastic(percentage):
-#     if percentage < 0.20:
-#         return 0
-#     elif percentage < 0.40:
-#         return 1
-#     elif percentage < 0.60:
-#         return 2
-#     elif percentage < 0.80:
-#         return 4
-#     else:
-#         return 5
-
 def convertMACDSignal(difference):
     if difference >= 0:
         return 1
     else:
         return 0
     # table['P(R = )']
+
 # Converts continuous price data to discrete labels and builds out emission-to-emission
 # probability matrix
 def convert(percentage, probabilities):
@@ -325,7 +392,7 @@ def next_weekday(adate, period):
 def is_business_day(date):
     return bool(len(pd.bdate_range(date, date)))
 
-def stockHistory(symbol, startDate, endDate):
+def stockHistory(symbol, startDate, endDate, code):
     stock = pdr.get_data_yahoo(symbol, start=startDate, end=endDate)
 
     # Assign `Adj Close` to `daily_close`
@@ -349,9 +416,13 @@ def stockHistory(symbol, startDate, endDate):
     stock['EMA26'] = 0.0
     stock['MACD'] = 0.0
     stock['MACD Signal'] = 0.0
+    stock['MACD Trend'] = 0.0
     stock['RSI'] = 0.0
+    stock['RSI Trend'] = 0.0
     stock['Stochastic'] = 0.0
     stock['Stochastic SMA'] = 0.0
+    stock['Consecutive'] = 1
+    stock['Consecutive Recommendation'] = "Test"
 
     probabilities = [0, 0, 0, 0, 0]
     transitions = [[0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0]]
@@ -402,41 +473,88 @@ def stockHistory(symbol, startDate, endDate):
     summed = probabilities[0] + probabilities[1] + probabilities[2] + probabilities[3] + probabilities[4]
     probabilitiesPct = [probabilities[0]/summed, probabilities[1]/summed, probabilities[2]/summed, probabilities[3]/summed, probabilities[4]/summed]
 
+    print(transitions)
     stock=ema(stock, 12, 'EMA')
     stock=ema(stock, 26, 'EMA')
     stock=macd(stock)
     stock=ema(stock, 9, 'MACD')
     stock=rsi(stock, 14)
     stock=stochastic(stock, 14)
+    stock=consecutive(stock)
 
     # print(stock)
-    stock.to_csv(symbol + ".csv")
-    return (stock, classes)
+    stock.to_csv(symbol + code + ".csv")
+    return (stock, classes, transitions)
 
 
-def predictor(stock, conditionalProbabilityDistribution, period, date):
+def predictor(stock, conditionalProbabilityDistribution, period, date, transitions, indicator):
+    prediction = "Neutral"
     dateDate = datetime.datetime.strptime(date, '%Y-%m-%d').date()
+
+    checkValue = 0.0
+    downSum = 0.0
+    neutralSum = 0.0
+    upSum = 0.0
+    totalSum = 0.0
+
     while not is_business_day(dateDate):
         dateDate += 1
     date = dateDate
     yesterday = prev_weekday(date, period).strftime('%Y-%m-%d')
     print(yesterday)
     if yesterday in stock['RSI']:
+        pastChange = stock['delta'][yesterday]
+        listIndex = deltaList.index(pastChange)
         rKey = convertRSI(stock['RSI'][yesterday])
         sKey = convertRSI(stock['Stochastic'][yesterday])
         mKey = convertMACDSignal(stock['MACD'][yesterday] - stock['MACD Signal'][yesterday])
-
+        cKey = stock['Consecutive'][yesterday]
 
         choices = []
 
-        for delta in ["Very Much Up", "Up", "Neutral", "Down", "Very Much Down"]:
-            key = "P(D = " + delta + " | R = " + str(rKey) + ", S = " + str(sKey) + ", M = " + str(mKey) + ")"
+        for delta in deltaList:
+            key = "P(D = " + delta + " | R = " + str(rKey) + ", S = " + str(sKey) + ", M = " + str(mKey) + ", C = " + str(cKey) + ")"
             if key in conditionalProbabilityDistribution:
                 choices.append((delta, conditionalProbabilityDistribution[key]))
             else:
-                choices.append((delta, 0.2))
+                matrix = transitions[listIndex]
+                choice = max(enumerate(matrix), key = lambda x: x[1])[0]
 
-        prediction = max(choices, key = lambda x: x[1])[0]
+                # choices.append((delta, 1.0/len(deltaList)))
+                choices.append((deltaList[choice], 1.0))
+
+        if indicator == 0:
+            prediction = max(choices, key = lambda x: x[1])[0]
+
+        elif indicator == 1:
+            matrix = transitions[listIndex]
+            prediction = deltaList[max(enumerate(matrix), key = lambda x: x[1])[0]]
+
+        elif indicator == 2:
+            prediction = pastChange
+
+        elif indicator == 3:
+            if pastChange == "Very Much Up" or pastChange == "Up":
+                prediction = "Down"
+            elif pastChange == "Very Much Down" or pastChange == "Down":
+                prediction = "Up"
+            else:
+                prediction = pastChange
+
+        elif indicator == 4:
+            checkValue = random.random()
+            upSum = sum(transitions[0]) + sum(transitions[1])
+            neutralSum = sum(transitions[2])
+            downSum = sum(transitions[3]) + sum(transitions[4])
+            totalSum = upSum + neutralSum + downSum
+
+            if checkValue <= upSum/totalSum:
+                prediction = "Up"
+            elif checkValue < (upSum + neutralSum)/totalSum:
+                prediction = "Neural"
+            else:
+                prediction = "Down"
+
         print("Prediction: The price will move " + prediction + " on " + date.strftime('%Y-%m-%d'))
         if date.strftime('%Y-%m-%d') in stock['RSI']:
             realAction = stock['delta'][date.strftime('%Y-%m-%d')]
@@ -444,12 +562,16 @@ def predictor(stock, conditionalProbabilityDistribution, period, date):
             # if prediction in realAction:
 
             if 'Up' in prediction and 'Up' in realAction:
+                print("Accurate")
                 return (1.0, 1.0)
             elif 'Down' in prediction and 'Down' in realAction:
+                print("Accurate")
                 return (1.0, 1.0)
             elif prediction in realAction:
+                print("Accurate")
                 return (1.0, 1.0)
             else:
+                print("Inaccurate")
                 return (0.0, 1.0)
         else:
             return (0.0, 0.0)
@@ -461,23 +583,63 @@ def testing():
     startDate = '2018-01-01'
     predictionDateString = startDate
     predictionDate = datetime.datetime.strptime(predictionDateString, '%Y-%m-%d').date()
-    finalPredictionDate = '2018-12-11'
+    finalPredictionDate = '2018-12-18'
     period = 1
-    stockHistories = stockHistory(ticker, "2010-01-01", "2018-12-31")[0]
-    pastHistory = stockHistory(ticker, "2010-01-01", "2017-12-31")[0]
+    stockHistories = stockHistory(ticker, "2010-01-01", "2018-12-31", "")[0]
+    items = stockHistory(ticker, "2010-01-01", "2017-12-31", "-")
+    pastHistory = items[0]
+    transitions = items[2]
     conditionalProbabilityDistribution = jointAnalysis(pastHistory, period)
 
     # if predictionDate.weekday() <= 4:
-    correct = 0.0
-    total = 0.0
+    conditionalCorrect = 0.0
+    conditionalTotal = 0.0
+    transitionsCorrect = 0.0
+    transitionsTotal = 0.0
+    naiveCorrect = 0.0
+    naiveTotal = 0.0
+    oppositeNaiveCorrect = 0
+    oppositeNaiveTotal = 0
+    randomCorrect = 0.0
+    randomTotal = 0.0
     while predictionDate < datetime.datetime.strptime(finalPredictionDate, '%Y-%m-%d').date() + timedelta(days=1):
         if is_business_day(predictionDate):
-            correct += predictor(stockHistories, conditionalProbabilityDistribution, period, predictionDate.strftime('%Y-%m-%d'))[0]
-            total += predictor(stockHistories, conditionalProbabilityDistribution, period, predictionDate.strftime('%Y-%m-%d'))[1]
+            conditionalPredictionTuple = predictor(stockHistories, conditionalProbabilityDistribution, period, predictionDate.strftime('%Y-%m-%d'), transitions, 0)
+            transitionsPredictionTuple = predictor(stockHistories, conditionalProbabilityDistribution, period, predictionDate.strftime('%Y-%m-%d'), transitions, 1)
+            naiveTuple = predictor(stockHistories, conditionalProbabilityDistribution, period, predictionDate.strftime('%Y-%m-%d'), transitions, 2)
+            oppositeNaiveTuple = predictor(stockHistories, conditionalProbabilityDistribution, period, predictionDate.strftime('%Y-%m-%d'), transitions, 3)
+            randomTuple = predictor(stockHistories, conditionalProbabilityDistribution, period, predictionDate.strftime('%Y-%m-%d'), transitions, 4)
+            conditionalCorrect += conditionalPredictionTuple[0]
+            conditionalTotal += conditionalPredictionTuple[1]
+            transitionsCorrect += transitionsPredictionTuple[0]
+            transitionsTotal += transitionsPredictionTuple[1]
+            naiveCorrect += naiveTuple[0]
+            naiveTotal += naiveTuple[1]
+            oppositeNaiveCorrect += oppositeNaiveTuple[0]
+            oppositeNaiveTotal += oppositeNaiveTuple[1]
+            randomCorrect += randomTuple[0]
+            randomTotal += randomTuple[1]
         predictionDate = next_weekday(predictionDate, period)
-    print(correct)
-    print(total)
-    print(correct/total)
+    print("Conditional Probability Prediction Accuracy: ")
+    print("Correct: " + str(conditionalCorrect))
+    print("Total: " + str(conditionalTotal))
+    print("Accuracy: " + str(conditionalCorrect/conditionalTotal))
+    print("Emmisions Prediction Accuracy: ")
+    print("Correct: " + str(transitionsCorrect))
+    print("Total: " + str(transitionsTotal))
+    print("Accuracy: " + str(transitionsCorrect/transitionsTotal))
+    print("Naive Prediction Accuracy: ")
+    print("Correct: " + str(naiveCorrect))
+    print("Total: " + str(naiveTotal))
+    print("Accuracy: " + str(naiveCorrect/naiveTotal))
+    print("Opposite Naive Prediction Accuracy: ")
+    print("Correct: " + str(oppositeNaiveCorrect))
+    print("Total: " + str(oppositeNaiveTotal))
+    print("Accuracy: " + str(naiveCorrect/naiveTotal))
+    print("Random Prediction Accuracy: ")
+    print("Correct: " + str(randomCorrect))
+    print("Total: " + str(randomTotal))
+    print("Accuracy: " + str(randomCorrect/randomTotal))
 
 predictionDate = "2018-01-02"
 forecastingPeriod = 1
@@ -522,227 +684,9 @@ predictedclasses = NB.predict(testX)
 print("Accuracy:")
 print (metrics.accuracy_score(testclasses, predictedclasses))
 
-# If we implement the NB on our own:
-# 1) Training: count the number of rows with each of the 5 perc_change classes
-#              build a dictionary with all the possible values/intervals for each feature (that requires discretizing the features as well)
-#              count the occurences of each features interval in each perc_change class
-#              fit the model using the same equation as in q5 of NaiveBayes.py
-#              test it on (testX, predictedclasses) in the same way as q6
-
-
-##$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$##
-# stock = pdr.get_data_yahoo("TSLA").loc["2018"]
-#
-# # Assign `Adj Close` to `daily_close`
-# daily_close = stock[['Adj Close']]
-#
-# # Daily returns
-# daily_pct_change = daily_close.pct_change()
-#
-# # Replace NA values with 0
-# daily_pct_change.fillna(0, inplace=True)
-#
-# stock['pctChange'] = stock[['Adj Close']].pct_change()
-#
-# # stock['logDelta'] = np.log(daily_close.pct_change()+1)
-#
-# stock.fillna(0, inplace=True)
-#
-#
-# stock['delta'] = "Test"
-# stock['EMA12'] = 0.0
-# stock['EMA26'] = 0.0
-# stock['MACD'] = 0.0
-# stock['MACD Signal'] = 0.0
-# stock['RSI'] = 0.0
-# stock['Stochastic'] = 0.0
-# stock['Stochastic SMA'] = 0.0
-#
-# probabilities = [0, 0, 0, 0, 0]
-# transitions = [[0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0]]
-# transitionsDict = {}
-# for key in [('Very Much Up', 'Very Much Up'), ('Very Much Up', 'Up'), ('Very Much Up', 'Neutral'), ('Very Much Up', 'Down'), ('Very Much Up', 'Very Much Down')]:
-#     transitionsDict[key] = 0
-# for key in [('Up', 'Very Much Up'), ('Up', 'Up'), ('Up', 'Neutral'), ('Up', 'Down'), ('Up', 'Very Much Down')]:
-#     transitionsDict[key] = 0
-# for key in [('Neutral', 'Very Much Up'), ('Neutral', 'Up'), ('Neutral', 'Neutral'), ('Neutral', 'Down'), ('Neutral', 'Very Much Down')]:
-#     transitionsDict[key] = 0
-# for key in [('Down', 'Very Much Up'), ('Down', 'Up'), ('Down', 'Neutral'), ('Down', 'Down'), ('Down', 'Very Much Down')]:
-#     transitionsDict[key] = 0
-# for key in [('Very Much Down', 'Very Much Up'), ('Very Much Down', 'Up'), ('Very Much Down', 'Neutral'), ('Very Much Down', 'Down'), ('Very Much Down', 'Very Much Down')]:
-#     transitionsDict[key] = 0
-#
-# sums = 0
-#
-# for i in range(0, len(stock.index)):
-#     # test.append(stock.iloc[i]['pctChange'])
-#     result = convert(stock.iloc[i]['pctChange'], probabilities)
-#     stock['delta'][i] = result[0]
-#     if i > 0:
-#         transitionsDict[(result[0], stock['delta'][i - 1])] += 1
-#         if stock['delta'][i - 1] is "Very Much Up":
-#             transitions[result[2]][0] += 1
-#             sums += 1
-#         elif stock['delta'][i - 1] is "Up":
-#             transitions[result[2]][1] += 1
-#             sums += 1
-#         elif stock['delta'][i - 1] is "Neutral":
-#             transitions[result[2]][2] += 1
-#             sums += 1
-#         elif stock['delta'][i - 1] is "Down":
-#             transitions[result[2]][3] += 1
-#         elif stock['delta'][i - 1] is "Very Much Down":
-#             transitions[result[2]][4] += 1
-#             sums += 1
-#
-#         # Not sure why there is a leakage here
-#         # else:
-#             # print(stock['delta'][i - 1])
-#     probabilities = result[1]
-#     # stock.set_value(i, 'delta', convert(stock.iloc[i]['pctChange']))
-#
-# probabilitiesPct = []
-# summed = probabilities[0] + probabilities[1] + probabilities[2] + probabilities[3] + probabilities[4]
-# probabilitiesPct = [probabilities[0]/summed, probabilities[1]/summed, probabilities[2]/summed, probabilities[3]/summed, probabilities[4]/summed]
-#
-#
-#
-#
-#
-# newSum = 0
-# for key in [('Very Much Up', 'Very Much Up'), ('Up', 'Very Much Up'), ('Neutral', 'Very Much Up'), ('Down', 'Very Much Up'), ('Very Much Down', 'Very Much Up')]:
-#     newSum += transitionsDict[key]
-# for key in [('Very Much Up', 'Very Much Up'), ('Up', 'Very Much Up'), ('Neutral', 'Very Much Up'), ('Down', 'Very Much Up'), ('Very Much Down', 'Very Much Up')]:
-#     if newSum != 0:
-#         transitionsDict[key] = transitionsDict[key]/newSum
-#     else:
-#         transitionsDict[key] = 0
-#
-# newSum = 0
-# for key in [('Very Much Up', 'Up'), ('Up', 'Up'), ('Neutral', 'Up'), ('Down', 'Up'), ('Very Much Down', 'Up')]:
-#     newSum += transitionsDict[key]
-# for key in [('Very Much Up', 'Up'), ('Up', 'Up'), ('Neutral', 'Up'), ('Down', 'Up'), ('Very Much Down', 'Up')]:
-#     if newSum != 0:
-#         transitionsDict[key] = transitionsDict[key]/newSum
-#     else:
-#         transitionsDict[key] = 0
-#
-# newSum = 0
-# for key in [('Very Much Up', 'Neutral'), ('Up', 'Neutral'), ('Neutral', 'Neutral'), ('Down', 'Neutral'), ('Very Much Down', 'Neutral')]:
-#     newSum += transitionsDict[key]
-# for key in [('Very Much Up', 'Neutral'), ('Up', 'Neutral'), ('Neutral', 'Neutral'), ('Down', 'Neutral'), ('Very Much Down', 'Neutral')]:
-#     if newSum != 0:
-#         transitionsDict[key] = transitionsDict[key]/newSum
-#     else:
-#         transitionsDict[key] = 0
-#
-# newSum = 0
-# for key in [('Very Much Up', 'Down'), ('Up', 'Down'), ('Neutral', 'Down'), ('Down', 'Down'), ('Very Much Down', 'Down')]:
-#     newSum += transitionsDict[key]
-# for key in [('Very Much Up', 'Down'), ('Up', 'Down'), ('Neutral', 'Down'), ('Down', 'Down'), ('Very Much Down', 'Down')]:
-#     if newSum != 0:
-#         transitionsDict[key] = transitionsDict[key]/newSum
-#     else:
-#         transitionsDict[key] = 0
-#
-# newSum = 0
-# for key in [('Very Much Up', 'Very Much Down'), ('Up', 'Very Much Down'), ('Neutral', 'Very Much Down'), ('Down', 'Very Much Down'), ('Very Much Down', 'Very Much Down')]:
-#     newSum += transitionsDict[key]
-# for key in [('Very Much Up', 'Very Much Down'), ('Up', 'Very Much Down'), ('Neutral', 'Very Much Down'), ('Down', 'Very Much Down'), ('Very Much Down', 'Very Much Down')]:
-#     if newSum != 0:
-#         transitionsDict[key] = transitionsDict[key]/newSum
-#     else:
-#         transitionsDict[key] = 0
-#
-# stock=ema(stock, 12, 'EMA')
-# stock=ema(stock, 26, 'EMA')
-# stock=macd(stock)
-# stock=ema(stock, 9, 'MACD')
-# stock=rsi(stock, 14)
-# stock=stochastic(stock, 14)
-#
-# # print(stock)
-# stock.to_csv(ticker + ".csv")
-#
-# conditionalProbabilityDistribution = jointAnalysis(stock, 1)
-#
-# # Prediction
-# rKey = convertRSI(stock['RSI'][endDate])
-# sKey = convertRSI(stock['Stochastic'][endDate])
-# mKey = convertMACDSignal(stock['MACD'][endDate] - stock['MACD Signal'][endDate])
-# choices = []
-# for delta in ["Very Much Up", "Up", "Neutral", "Down", "Very Much Down"]:
-#     key = "P(D = " + delta + " | R = " + str(rKey) + ", S = " + str(sKey) + ", M = " + str(mKey) + ")"
-#     if key in conditionalProbabilityDistribution:
-#         choices.append((delta, conditionalProbabilityDistribution[key]))
-#
-# prediction = max(choices, key = lambda x: x[1])[0]
-# print("Prediction: The price will move " + prediction + " on " + predictionDate)
-#
-
-
-
-
-
-
-
-
-# # Daily log returns
-# daily_log_returns = np.log(daily_close.pct_change()+1)
-#
-# # Print daily log returns
-# print(daily_log_returns)
-
-# Shift percentage change method
-# # Daily returns
-# daily_pct_change = daily_close / daily_close.shift(1) - 1
-#
-# # Print `daily_pct_change`
-# print(daily_pct_change)
-
-# # Currently calculating probability of same key[0] given key[1] (sums to 1)
-# newSum = 0
-# for key in [('Very Much Up', 'Very Much Up'), ('Very Much Up', 'Up'), ('Very Much Up', 'Neutral'), ('Very Much Up', 'Down'), ('Very Much Up', 'Very Much Down')]:
-#     newSum += transitionsDict[key]
-# for key in [('Very Much Up', 'Very Much Up'), ('Very Much Up', 'Up'), ('Very Much Up', 'Neutral'), ('Very Much Up', 'Down'), ('Very Much Up', 'Very Much Down')]:
-#     if newSum != 0:
-#         transitionsDict[key] = transitionsDict[key]/newSum
-#     else:
-#         transitionsDict[key] = 0
-#
-# newSum = 0
-# for key in [('Up', 'Very Much Up'), ('Up', 'Up'), ('Up', 'Neutral'), ('Up', 'Down'), ('Up', 'Very Much Down')]:
-#     newSum += transitionsDict[key]
-# for key in [('Up', 'Very Much Up'), ('Up', 'Up'), ('Up', 'Neutral'), ('Up', 'Down'), ('Up', 'Very Much Down')]:
-#     if newSum != 0:
-#         transitionsDict[key] = transitionsDict[key]/newSum
-#     else:
-#         transitionsDict[key] = 0
-#
-# newSum = 0
-# for key in [('Neutral', 'Very Much Up'), ('Neutral', 'Up'), ('Neutral', 'Neutral'), ('Neutral', 'Down'), ('Neutral', 'Very Much Down')]:
-#     newSum += transitionsDict[key]
-# for key in [('Neutral', 'Very Much Up'), ('Neutral', 'Up'), ('Neutral', 'Neutral'), ('Neutral', 'Down'), ('Neutral', 'Very Much Down')]:
-#     if newSum != 0:
-#         transitionsDict[key] = transitionsDict[key]/newSum
-#     else:
-#         transitionsDict[key] = 0
-#
-# newSum = 0
-# for key in [('Down', 'Very Much Up'), ('Down', 'Up'), ('Down', 'Neutral'), ('Down', 'Down'), ('Down', 'Very Much Down')]:
-#     newSum += transitionsDict[key]
-# for key in [('Down', 'Very Much Up'), ('Down', 'Up'), ('Down', 'Neutral'), ('Down', 'Down'), ('Down', 'Very Much Down')]:
-#     if newSum != 0:
-#         transitionsDict[key] = transitionsDict[key]/newSum
-#     else:
-#         transitionsDict[key] = 0
-#
-# newSum = 0
-# for key in [('Very Much Down', 'Very Much Up'), ('Very Much Down', 'Up'), ('Very Much Down', 'Neutral'), ('Very Much Down', 'Down'), ('Very Much Down', 'Very Much Down')]:
-#     newSum += transitionsDict[key]
-# for key in [('Very Much Down', 'Very Much Up'), ('Very Much Down', 'Up'), ('Very Much Down', 'Neutral'), ('Very Much Down', 'Down'), ('Very Much Down', 'Very Much Down')]:
-#     if newSum != 0:
-#         transitionsDict[key] = transitionsDict[key]/newSum
-#     else:
-#         transitionsDict[key] = 0
-#
+If we implement the NB on our own:
+1) Training: count the number of rows with each of the 5 perc_change classes
+             build a dictionary with all the possible values/intervals for each feature (that requires discretizing the features as well)
+             count the occurences of each features interval in each perc_change class
+             fit the model using the same equation as in q5 of NaiveBayes.py
+             test it on (testX, predictedclasses) in the same way as q6
