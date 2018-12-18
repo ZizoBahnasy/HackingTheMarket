@@ -20,10 +20,9 @@ yf.pdr_override() # <== that's all it takes :-)
 pd.options.mode.chained_assignment = None
 US_BUSINESS_DAY = CustomBusinessDay(calendar=USFederalHolidayCalendar())
 
-ticker = "BABA"
+ticker = "AAPL"
 
-# deltaList = ["Very Much Up", "Up", "Neutral", "Down", "Very Much Down"]
-deltaList = ["Up", "Neutral", "Down"]
+deltaList = ["Very Much Up", "Up", "Neutral", "Down", "Very Much Down"]
 
 def ema(stock, period, code):
     if code == "EMA":
@@ -171,6 +170,19 @@ def stochastic(stock, period):
 
     return stock
 
+def volumeIndicator(stock):
+    averageVolume = 0.0
+    totalTrades = 0.0
+    for i in range(1, len(stock.index)):
+        totalTrades += stock['Volume'][i]
+        averageVolume = totalTrades/(i + 1)
+        if stock['Volume'][i] - 10000000 > averageVolume:
+            stock['Volume Indicator'][i] = 3.0
+        elif stock['Volume'][i] - 5000000 > averageVolume:
+            stock['Volume Indicator'][i] = 2.0
+        elif stock['Volume'][i] > averageVolume:
+            stock['Volume Indicator'][i] = 1.0
+    return stock
 def consecutive(stock):
     twoDayMatch = 0.0
     twoDayTotal = 0.0
@@ -291,8 +303,10 @@ def jointAnalysis(stock, daysAhead):
     joints = []
     partialJoints = []
     for i in range(26, len(stock.index) - daysAhead):
-        joints.append((stock['delta'][i + daysAhead], convertRSI(stock['RSI'][i]), convertRSI(stock['Stochastic'][i]), convertMACDSignal(stock['MACD'][i] - stock['MACD Signal'][i]), stock['Consecutive'][i]))
-        partialJoints.append((convertRSI(stock['RSI'][i]), convertRSI(stock['Stochastic'][i]), convertMACDSignal(stock['MACD'][i] - stock['MACD Signal'][i]), stock['Consecutive'][i]))
+        item = (stock['delta'][i + daysAhead],
+                convertRSI(stock['RSI'][i]), convertRSI(stock['Stochastic'][i]), convertMACDSignal(stock['MACD'][i] - stock['MACD Signal'][i]), stock['Consecutive'][i], stock['Volume Indicator'][i], stock['RSI Trend'][i], stock['MACD Trend'][i])
+        joints.append(item)
+        partialJoints.append((convertRSI(stock['RSI'][i]), convertRSI(stock['Stochastic'][i]), convertMACDSignal(stock['MACD'][i] - stock['MACD Signal'][i]), stock['Consecutive'][i], stock['Volume Indicator'][i], stock['RSI Trend'][i], stock['MACD Trend'][i]))
     counter = collections.Counter(joints)
     partialCounter = collections.Counter(partialJoints)
     probabilities = {}
@@ -303,7 +317,7 @@ def jointAnalysis(stock, daysAhead):
     for key, value in partialCounter.items():
         value = (value * 1.0)/len(partialJoints)
         partialProbabilities[key] = value
-    pd.DataFrame(probabilities, index = [0]).to_csv('fullJointDistribution.csv', index=False)
+    pd.DataFrame(probabilities, index = [0]).to_csv(ticker + 'fullJointDistribution.csv', index=False)
     pd.DataFrame(partialProbabilities, index = [0]).to_csv(ticker + 'partialJointDistribution.csv', index=False)
     return conditionalProbabilities(probabilities, partialProbabilities)
 
@@ -326,20 +340,26 @@ def conditionalProbabilities(jointDistribution, partialJointDistribution):
         sKey = "S = " + str(key[2])
         mKey = "M = " + str(key[3])
         cKey = "C = " + str(key[4])
-        conditionals["P(D = " + str(key[0]) + " | " + rKey + ", " + sKey + ", " + mKey + ", " + cKey + ")"] = value/(partialJointDistribution[(key[1], key[2], key[3], key[4])])
+        vKey = "V = " + str(key[5])
+        rtKey = "RT = " + str(key[6])
+        mtKey = "MT = " + str(key[7])
+        conditionals["P(D = " + str(key[0]) + " | " + rKey + ", " + sKey + ", " + mKey + ", " + cKey + ", " + vKey + ", " + rtKey + ", " + mtKey + ")"] = value/(partialJointDistribution[(key[1], key[2], key[3], key[4], key[5], key[6], key[7])])
     pd.DataFrame(conditionals, index=[0]).to_csv(ticker + 'conditionalProbabilities.csv', index=False)
     return dictSort(conditionals)
 
 def dictSort(oldDict):
     sortedDict = {}
-    for consecutiveDays in range(1, 4):
-        for macd in range(2):
-            for stochastic in range(5):
-                for rsi in range(5):
-                    for delta in deltaList:
-                        key = "P(D = " + delta + " | R = " + str(rsi) + ", S = " + str(stochastic) + ", M = " + str(macd) + ", C = " + str(consecutiveDays) + ")"
-                        if key in oldDict:
-                            sortedDict[key] = oldDict[key]
+    for macdTrend in range(5):
+        for rsiTrend in range(5):
+            for volumeIndication in range(2):
+                for consecutiveDays in range(1, 4):
+                    for macd in range(2):
+                        for stochastic in range(5):
+                            for rsi in range(5):
+                                for delta in deltaList:
+                                    key = "P(D = " + delta + " | R = " + str(rsi) + ", S = " + str(stochastic) + ", M = " + str(macd) + ", C = " + str(consecutiveDays) + ", V = " + str(volumeIndication) + ", RT = " + str(rsiTrend) + ", MT = " + str(macdTrend) + ")"
+                                    if key in oldDict:
+                                        sortedDict[key] = oldDict[key]
     pd.DataFrame(sortedDict, index=[0]).to_csv(ticker + 'FinalConditionalProbabilities.csv', index=False)
     return sortedDict
 
@@ -360,33 +380,21 @@ def convertMACDSignal(difference):
 # probability matrix
 def convert(percentage, probabilities):
     if isinstance(percentage, float):
-        if percentage > 0.0010:
+        if percentage > 0.025:
             probabilities[0] += 1
-            return ["Up", probabilities, 0]
-        if percentage < -0.0010:
-            probabilities[2] += 1
-            return ["Down", probabilities, 2]
+            return ["Very Much Up", probabilities, 0]
+        if percentage <= 0.025 and percentage > 0.0010:
+            probabilities[1] += 1
+            return ["Up", probabilities, 1]
+        if percentage >= -0.025 and percentage < -0.0010:
+            probabilities[3] += 1
+            return ["Down", probabilities, 3]
+        if percentage < -0.025:
+            probabilities[4] += 1
+            return ["Very Much Down", probabilities, 4]
         else:
             probabilities[2] += 1
-            return ["Neutral", probabilities, 1]
-
-# def convert(percentage, probabilities):
-#     if isinstance(percentage, float):
-#         if percentage > 0.025:
-#             probabilities[0] += 1
-#             return ["Very Much Up", probabilities, 0]
-#         if percentage <= 0.025 and percentage > 0.0010:
-#             probabilities[1] += 1
-#             return ["Up", probabilities, 1]
-#         if percentage >= -0.025 and percentage < -0.0010:
-#             probabilities[3] += 1
-#             return ["Down", probabilities, 3]
-#         if percentage < -0.025:
-#             probabilities[4] += 1
-#             return ["Very Much Down", probabilities, 4]
-#         else:
-#             probabilities[2] += 1
-#             return ["Neutral", probabilities, 2]
+            return ["Neutral", probabilities, 2]
 
 def prev_weekday(adate, period):
     # adate -= timedelta(days=period)
@@ -436,29 +444,21 @@ def stockHistory(symbol, startDate, endDate, code):
     stock['Stochastic SMA'] = 0.0
     stock['Consecutive'] = 1
     stock['Consecutive Recommendation'] = "Test"
+    stock['Volume Indicator'] = 0.0
 
-    # probabilities = [0, 0, 0, 0, 0]
-    probabilities = [0, 0, 0]
-    # transitions = [[0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0]]
-    transitions = [[0,0,0],[0,0,0],[0,0,0]]
+    probabilities = [0, 0, 0, 0, 0]
+    transitions = [[0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0]]
     transitionsDict = {}
-    for key in [('Up', 'Up'), ('Up', 'Neutral'), ('Up', 'Down')]:
+    for key in [('Very Much Up', 'Very Much Up'), ('Very Much Up', 'Up'), ('Very Much Up', 'Neutral'), ('Very Much Up', 'Down'), ('Very Much Up', 'Very Much Down')]:
         transitionsDict[key] = 0
-    for key in [('Neutral', 'Up'), ('Neutral', 'Neutral'), ('Neutral', 'Down')]:
+    for key in [('Up', 'Very Much Up'), ('Up', 'Up'), ('Up', 'Neutral'), ('Up', 'Down'), ('Up', 'Very Much Down')]:
         transitionsDict[key] = 0
-    for key in [('Down', 'Up'), ('Down', 'Neutral'), ('Down', 'Down')]:
+    for key in [('Neutral', 'Very Much Up'), ('Neutral', 'Up'), ('Neutral', 'Neutral'), ('Neutral', 'Down'), ('Neutral', 'Very Much Down')]:
         transitionsDict[key] = 0
-    # for key in [('Very Much Up', 'Very Much Up'), ('Very Much Up', 'Up'), ('Very Much Up', 'Neutral'), ('Very Much Up', 'Down'), ('Very Much Up', 'Very Much Down')]:
-    #     transitionsDict[key] = 0
-    # for key in [('Up', 'Very Much Up'), ('Up', 'Up'), ('Up', 'Neutral'), ('Up', 'Down'), ('Up', 'Very Much Down')]:
-    #     transitionsDict[key] = 0
-    # for key in [('Neutral', 'Very Much Up'), ('Neutral', 'Up'), ('Neutral', 'Neutral'), ('Neutral', 'Down'), ('Neutral', 'Very Much Down')]:
-    #     transitionsDict[key] = 0
-    # for key in [('Down', 'Very Much Up'), ('Down', 'Up'), ('Down', 'Neutral'), ('Down', 'Down'), ('Down', 'Very Much Down')]:
-    #     transitionsDict[key] = 0
-    # for key in [('Very Much Down', 'Very Much Up'), ('Very Much Down', 'Up'), ('Very Much Down', 'Neutral'), ('Very Much Down', 'Down'), ('Very Much Down', 'Very Much Down')]:
-    #     transitionsDict[key] = 0
-
+    for key in [('Down', 'Very Much Up'), ('Down', 'Up'), ('Down', 'Neutral'), ('Down', 'Down'), ('Down', 'Very Much Down')]:
+        transitionsDict[key] = 0
+    for key in [('Very Much Down', 'Very Much Up'), ('Very Much Down', 'Up'), ('Very Much Down', 'Neutral'), ('Very Much Down', 'Down'), ('Very Much Down', 'Very Much Down')]:
+        transitionsDict[key] = 0
 
     sums = 0
     classes = []
@@ -470,28 +470,19 @@ def stockHistory(symbol, startDate, endDate, code):
         classes.append(result[2])
         if i > 0:
             transitionsDict[(result[0], stock['delta'][i - 1])] += 1
-            # if stock['delta'][i - 1] is "Very Much Up":
-            #     transitions[result[2]][0] += 1
-            #     sums += 1
-            # elif stock['delta'][i - 1] is "Up":
-            #     transitions[result[2]][1] += 1
-            #     sums += 1
-            # elif stock['delta'][i - 1] is "Neutral":
-            #     transitions[result[2]][2] += 1
-            #     sums += 1
-            # elif stock['delta'][i - 1] is "Down":
-            #     transitions[result[2]][3] += 1
-            # elif stock['delta'][i - 1] is "Very Much Down":
-            #     transitions[result[2]][4] += 1
-            #     sums += 1
-            if stock['delta'][i - 1] is "Up":
+            if stock['delta'][i - 1] is "Very Much Up":
                 transitions[result[2]][0] += 1
                 sums += 1
-            elif stock['delta'][i - 1] is "Neutral":
+            elif stock['delta'][i - 1] is "Up":
                 transitions[result[2]][1] += 1
                 sums += 1
-            elif stock['delta'][i - 1] is "Down":
+            elif stock['delta'][i - 1] is "Neutral":
                 transitions[result[2]][2] += 1
+                sums += 1
+            elif stock['delta'][i - 1] is "Down":
+                transitions[result[2]][3] += 1
+            elif stock['delta'][i - 1] is "Very Much Down":
+                transitions[result[2]][4] += 1
                 sums += 1
 
             # Not sure why there is a leakage here
@@ -501,10 +492,8 @@ def stockHistory(symbol, startDate, endDate, code):
         # stock.set_value(i, 'delta', convert(stock.iloc[i]['pctChange']))
 
     probabilitiesPct = []
-    # summed = probabilities[0] + probabilities[1] + probabilities[2] + probabilities[3] + probabilities[4]
-    summed = probabilities[0] + probabilities[1] + probabilities[2]
-    # probabilitiesPct = [probabilities[0]/summed, probabilities[1]/summed, probabilities[2]/summed, probabilities[3]/summed, probabilities[4]/summed]
-    probabilitiesPct = [probabilities[0]/summed, probabilities[1]/summed, probabilities[2]/summed]
+    summed = probabilities[0] + probabilities[1] + probabilities[2] + probabilities[3] + probabilities[4]
+    probabilitiesPct = [probabilities[0]/summed, probabilities[1]/summed, probabilities[2]/summed, probabilities[3]/summed, probabilities[4]/summed]
 
     print(transitions)
     stock=ema(stock, 12, 'EMA')
@@ -514,6 +503,7 @@ def stockHistory(symbol, startDate, endDate, code):
     stock=rsi(stock, 14)
     stock=stochastic(stock, 14)
     stock=consecutive(stock)
+    stock=volumeIndicator(stock)
 
     # print(stock)
     stock.to_csv(symbol + code + ".csv")
@@ -542,11 +532,14 @@ def predictor(stock, conditionalProbabilityDistribution, period, date, transitio
         sKey = convertRSI(stock['Stochastic'][yesterday])
         mKey = convertMACDSignal(stock['MACD'][yesterday] - stock['MACD Signal'][yesterday])
         cKey = stock['Consecutive'][yesterday]
+        vKey = stock['Volume Indicator'][yesterday]
+        rtKey = stock['RSI Trend'][yesterday]
+        mtKey = stock['MACD Trend'][yesterday]
 
         choices = []
 
         for delta in deltaList:
-            key = "P(D = " + delta + " | R = " + str(rKey) + ", S = " + str(sKey) + ", M = " + str(mKey) + ", C = " + str(cKey) + ")"
+            key = "P(D = " + delta + " | R = " + str(rKey) + ", S = " + str(sKey) + ", M = " + str(mKey) + ", C = " + str(cKey) + ", V = " + str(vKey) + ", RT = " + str(rtKey) + ", MT = " + str(mtKey) + ")"
             if key in conditionalProbabilityDistribution:
                 choices.append((delta, conditionalProbabilityDistribution[key]))
             else:
@@ -576,9 +569,9 @@ def predictor(stock, conditionalProbabilityDistribution, period, date, transitio
 
         elif indicator == 4:
             checkValue = random.random()
-            upSum = sum(transitions[0])
-            neutralSum = sum(transitions[1])
-            downSum = sum(transitions[2])
+            upSum = sum(transitions[0]) + sum(transitions[1])
+            neutralSum = sum(transitions[2])
+            downSum = sum(transitions[3]) + sum(transitions[4])
             totalSum = upSum + neutralSum + downSum
 
             if checkValue <= upSum/totalSum:
@@ -618,8 +611,8 @@ def testing():
     predictionDate = datetime.datetime.strptime(predictionDateString, '%Y-%m-%d').date()
     finalPredictionDate = '2018-12-18'
     period = 1
-    stockHistories = stockHistory(ticker, "2010-01-01", "2018-12-31", "")[0]
-    items = stockHistory(ticker, "2010-01-01", "2017-12-31", "-")
+    stockHistories = stockHistory(ticker, "2017-12-29", "2018-12-31", "")[0]
+    items = stockHistory(ticker, "2000-01-01", "2017-12-31", "-")
     pastHistory = items[0]
     transitions = items[2]
     conditionalProbabilityDistribution = jointAnalysis(pastHistory, period)
@@ -653,26 +646,34 @@ def testing():
             randomCorrect += randomTuple[0]
             randomTotal += randomTuple[1]
         predictionDate = next_weekday(predictionDate, period)
+    accuracyDict = {}
+
     print("Conditional Probability Prediction Accuracy: ")
     print("Correct: " + str(conditionalCorrect))
     print("Total: " + str(conditionalTotal))
     print("Accuracy: " + str(conditionalCorrect/conditionalTotal))
+    accuracyDict["Conditional Probability"] = ["Correct: " + str(conditionalCorrect), "Total: " + str(conditionalTotal), "Accuracy: " + str(conditionalCorrect/conditionalTotal)]
     print("Emmisions Prediction Accuracy: ")
     print("Correct: " + str(transitionsCorrect))
     print("Total: " + str(transitionsTotal))
     print("Accuracy: " + str(transitionsCorrect/transitionsTotal))
+    accuracyDict["Emissions"] = ["Correct: " + str(transitionsCorrect), "Total: " + str(transitionsTotal), "Accuracy: " + str(transitionsCorrect/transitionsTotal)]
     print("Naive Prediction Accuracy: ")
     print("Correct: " + str(naiveCorrect))
     print("Total: " + str(naiveTotal))
     print("Accuracy: " + str(naiveCorrect/naiveTotal))
+    accuracyDict["Naive"] = ["Correct: " + str(naiveCorrect), "Total: " + str(naiveTotal), "Accuracy: " + str(naiveCorrect/naiveTotal)]
     print("Opposite Naive Prediction Accuracy: ")
     print("Correct: " + str(oppositeNaiveCorrect))
     print("Total: " + str(oppositeNaiveTotal))
     print("Accuracy: " + str(naiveCorrect/naiveTotal))
+    accuracyDict["Opposite"] = ["Correct: " + str(oppositeNaiveCorrect), "Total: " + str(oppositeNaiveTotal), "Accuracy: " + str(oppositeNaiveCorrect/oppositeNaiveTotal)]
     print("Random Prediction Accuracy: ")
     print("Correct: " + str(randomCorrect))
     print("Total: " + str(randomTotal))
     print("Accuracy: " + str(randomCorrect/randomTotal))
+    accuracyDict["Random"] = ["Correct: " + str(randomCorrect), "Total: " + str(randomTotal), "Accuracy: " + str(randomCorrect/randomTotal)]
+    pd.DataFrame([accuracyDict], index = [0]).to_csv(ticker + 'Accuracy Log With R, S, M, C, V.csv', index=False)
 
 predictionDate = "2018-01-02"
 forecastingPeriod = 1
@@ -681,41 +682,41 @@ print(endDate)
 # stock = pdr.get_data_yahoo(ticker, start="2010-01-01", end=endDate)
 
 testing()
-#
+
 # """ Naives Bayes Classification """
-
-stock, classes = stockHistory(ticker, "2010-01-01", "2018-12-31")
-
-# drop high, low, close, and EMA columns since not useful for NB
-optstock = stock.drop(['High','Low','Close','delta','EMA12','EMA26'], axis=1)
-# optstock = optstock.drop(optstock.index[0:30])
-
-# Delete last row since can have NaN values
-optstock=optstock.drop(optstock.index[-1])
-classes = classes[:-1]
-
-# get 80% index to divide data into training and testing sets for fitting
-cutat = int(len(optstock.index) / 10) * 8
-trainingX=optstock.drop(optstock.index[cutat:])
-testX=optstock.drop(optstock.index[0:cutat])
-# trainingX = optstock[:cutat]
-# testX = optstock[cutat:]
-
-trainingclasses = classes[:cutat]
-testclasses = classes[cutat:]
-# print(len(testclasses))
-# print(stock.head())
-
-# Use sklearn if possible to fit the model, test it, and get its accuracy. If not, implement our own NB and CPTs.
-NB = GaussianNB()
-# print(optstock)
-# print(trainingX)
-# print(trainingclasses)
-NB.fit(trainingX, trainingclasses)
-predictedclasses = NB.predict(testX)
-
-print("Accuracy:")
-print (metrics.accuracy_score(testclasses, predictedclasses))
+#
+# stock, classes = stockHistory(ticker, "2010-01-01", "2018-12-31")
+#
+# # drop high, low, close, and EMA columns since not useful for NB
+# optstock = stock.drop(['High','Low','Close','delta','EMA12','EMA26'], axis=1)
+# # optstock = optstock.drop(optstock.index[0:30])
+#
+# # Delete last row since can have NaN values
+# optstock=optstock.drop(optstock.index[-1])
+# classes = classes[:-1]
+#
+# # get 80% index to divide data into training and testing sets for fitting
+# cutat = int(len(optstock.index) / 10) * 8
+# trainingX=optstock.drop(optstock.index[cutat:])
+# testX=optstock.drop(optstock.index[0:cutat])
+# # trainingX = optstock[:cutat]
+# # testX = optstock[cutat:]
+#
+# trainingclasses = classes[:cutat]
+# testclasses = classes[cutat:]
+# # print(len(testclasses))
+# # print(stock.head())
+#
+# # Use sklearn if possible to fit the model, test it, and get its accuracy. If not, implement our own NB and CPTs.
+# NB = GaussianNB()
+# # print(optstock)
+# # print(trainingX)
+# # print(trainingclasses)
+# NB.fit(trainingX, trainingclasses)
+# predictedclasses = NB.predict(testX)
+#
+# print("Accuracy:")
+# print (metrics.accuracy_score(testclasses, predictedclasses))
 
 # If we implement the NB on our own:
 # 1) Training: count the number of rows with each of the 5 perc_change classes
