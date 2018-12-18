@@ -24,27 +24,43 @@ ticker = "BABA"
 
 deltaList = ["Very Much Up", "Up", "Neutral", "Down", "Very Much Down"]
 
+
 def ema(stock, period, code):
+    """Calculates the expnential moving average of a stock's price given a period of days
+    E.g. Period = 12 or 26 for the 12-Day EMA and 26-Day EMA respectively
+    The code allows the system to calculate the EMA of the stock price and the EMA of the MACD.
+    It is also possible to detect a change in trend when the MACD crosses the MACD Signal."""
+
     if code == "EMA":
+        # Calculates EMA if the period is shorter than data; otherwise, calculates the simple moving average (SMA)
         if period < len(stock.index):
             for i in range(period, len(stock.index)):
 
+                # List of last (period) closing prices at i
                 closingPrices = [stock['Adj Close'][i - j] for j in range(period, 0, -1)]
 
+                # SMA of those closing prices
                 sma = sum(closingPrices)/period
 
+                # EMA multiplier
                 multiplier = 2.0/(period + 1)
+
                 stock['EMA' + str(period)][i] = sma
 
                 if i != period:
                     stock['EMA' + str(period)][i] = (stock['Adj Close'][i] - stock['EMA' + str(period)][i - 1]) * multiplier + stock['EMA' + str(period)][i - 1]
+
             return stock
+
+        # Calculates just the simple moving average in the case of period > len(stock.index)
         else:
             for i in range(len(stock.index)):
                 closingPrices = [stock['Adj Close'][j] for j in range(len(stock.index))]
                 sma = sum(closingPrices)/len(stock.index)
                 stock['EMA' + str(period)][i] = sma
             return stock
+    # Calculates the EMA of the MACD (e.g. 9-Day MACD EMA) to produce the MACD signal
+    # (which is the 9-day MACD EMA and a function of the difference between the 12-Day Price EMA and the 26-Day Price EMA)
     else:
         if period < len(stock.index):
             for i in range(period, len(stock.index)):
@@ -58,6 +74,7 @@ def ema(stock, period, code):
                     else:
                         stock['MACD Signal'][i] = 0
 
+                # Trend change when the MACD crosses the MACD Signal
                 if stock['MACD'][i] < stock['MACD Signal'][i] and stock['MACD'][i - 1] < stock['MACD Signal'][i - 1]:
                     stock['MACD Trend'][i] = 1.0
                 if stock['MACD'][i] < stock['MACD Signal'][i] and stock['MACD'][i - 1] > stock['MACD Signal'][i - 1]:
@@ -66,6 +83,7 @@ def ema(stock, period, code):
                     stock['MACD Trend'][i] = 3.0
                 if stock['MACD'][i] > stock['MACD Signal'][i] and stock['MACD'][i - 1] > stock['MACD Signal'][i - 1]:
                     stock['MACD Trend'][i] = 4.0
+        # If period is large, use the SMA
         else:
             for i in range(len(stock.index)):
                 macdList = [stock['MACD'][i - j] for j in range(period, 0, -1)]
@@ -75,15 +93,25 @@ def ema(stock, period, code):
         return stock
 
 def macd(stock):
+    """The moving average convergence divergence (MACD) is the difference between the 12-Day EMA and the 26-Day EMA
+    and is a momentum indicator that indicates whether rcent price movement is high or low relative to past price movement.
+    This indicator is useful when used in conjunction with its 9-Day EMA (the MACD Signal indicator)."""
+
     for i in range(len(stock.index)):
         if stock['EMA12'][i] != 0 and stock['EMA26'][i] != 0:
             stock['MACD'][i] = stock['EMA12'][i] - stock['EMA26'][i]
         else:
             stock['MACD'][i] = 0
-
-
     return stock
+
+
 def convergence(stock, period):
+    """The EMA Convergence assigns the price movement discretized values (from 1 to 6)
+    based on whether the price is approaching or moving away from its EMA (and based on which
+    side it is on).  We decided having six values instead of two (moving toward vs. moving away)
+    would allow for more feature specificity in our classification.  You can see the commented
+    lines where this would have been different in the two-value case."""
+
     for i in range(period, len(stock.index)):
         if stock['Adj Close'][i] - stock['EMA' + str(period)][i] > 0:
             if stock['Adj Close'][i] - stock['EMA' + str(period)][i] < stock['Adj Close'][i - 1] - stock['EMA' + str(period)][i - 1]:
@@ -105,7 +133,11 @@ def convergence(stock, period):
             stock['EMA' + str(period) + ' Convergence'][i] = 6.0
     return stock
 
+
 def rsi(stock, period):
+    """The relative strength index (RSI) of the stock price is an indicator that illustrates "overbuying"/"overselling"
+    of an asset by comparing its average recent gains and losses on a continual basis.  Crossing 50 in either direction
+    can be used as a signal of trend change."""
     stock['RSI'][0] = 50
     gainsList = []
     lossesList = []
@@ -136,6 +168,7 @@ def rsi(stock, period):
             value = 100
         stock['RSI'][i] = value
 
+        # Trend change when 50 is crossed
         if stock['RSI'][i] < 50.0 and stock['RSI'][i - 1] < 50.0:
             stock['RSI Trend'][i] = 1.0
         if stock['RSI'][i] < 50.0 and stock['RSI'][i - 1] >= 50.0:
@@ -149,6 +182,9 @@ def rsi(stock, period):
     return stock
 
 def stochastic(stock, period):
+    """The Stochastic Oscillator compares the previous closing price to the high and low
+    of the past (period) days.  This indicator is another depiction of "overbuying"/"overselling"
+    relative to the recent trading range of the price."""
     lows = []
     highs = []
     high = 0.0
@@ -167,13 +203,6 @@ def stochastic(stock, period):
         kList.append(k)
         stock['Stochastic'][i] = k
 
-    # for i in range(period, len(stock.index)):
-    #     avgGain = sum(stock['pctChange'][i - j] for j in range(period, 0, -1) if stock['pctChange'][i - j] > 0)/period
-    #     gainsList.append(avgGain)
-    #     avgLoss = -1 * sum(stock['pctChange'][i - j] for j in range(period, 0, -1) if stock['pctChange'][i - j] < 0)/period
-    #     lossesList.append(avgLoss)
-    #
-    #     stock['RSI'][i] = 100 - (100/(1 + (gainsList[i - 1 - (period - 1)] * 13 + stock['pctChange'][i])/(lossesList[i - 1 - (period - 1)] * 13 + stock['pctChange'][i])))
     for i in range(period, len(stock.index)):
         lows = [stock['Low'][i - j] for j in range(period, 0, -1)]
         highs = [stock['High'][i - j] for j in range(period, 0, -1)]
@@ -192,6 +221,9 @@ def stochastic(stock, period):
     return stock
 
 def volumeIndicator(stock):
+    """A high-volume trading day might indicate the health of a given trend.  Therefore, this
+    indicator assigns discrete values to various levels of high volume to add another feature to the
+    specificity of the classification algorithms."""
     averageVolume = 0.0
     totalTrades = 0.0
     for i in range(1, len(stock.index)):
@@ -204,57 +236,29 @@ def volumeIndicator(stock):
         elif stock['Volume'][i] > averageVolume:
             stock['Volume Indicator'][i] = 1.0
     return stock
+
+
+
 def consecutive(stock):
-    twoDayMatch = 0.0
-    twoDayTotal = 0.0
-    threeDayMatch = 0.0
-    threeDayTotal = 0.0
-    fourDayTotal = 0.0
-    marginalList = []
-    partialTwoDayList = []
-    partialThreeDayList = []
-    partialFourDayList = []
-    consecutiveTwoDayList = []
-    consecutiveThreeDayList = []
-    consecutiveFourDayList = []
+    """Another indicator is the number of consecutive trading days a stock has moved in a single direction.
+    There are two potential outcomes of this kind of repetition: (1) a solidified trend that keeps going;
+    or (2) a change in direction to converge back to a "real price."  We originally built a transitions probability matrix
+    based on consecutive days (e.g. if you witness Down, Down, Down, what are the probabilities of the price going Up vs Down
+    the next day), but that technique does not fit perfectly into the classification system, so we decided instead simply to include the
+    number of consecutive days as a feature with the understanding that the course of training should interpret historical instances of
+    consecutive movement into probabilities for the future."""
+    delta = "Neutral"
     for i in range(29, len(stock.index) - 1):
-        marginalList.append(stock['delta'][i])
-        partialTwoDayList.append((stock['delta'][i], stock['delta'][i - 1]))
-        if stock['delta'][i] == stock['delta'][i - 1]:
-            stock['Consecutive'][i] += 1
-            consecutiveTwoDayList.append((stock['delta'][i - 1], stock['delta'][i], stock['delta'][i + 1]))
-            if stock['delta'][i - 1] == stock['delta'][i - 2]:
+        delta = stock['delta'][i]
+        if delta == "Very Much Up":
+            delta = "Up"
+        if delta == "Very Much Down":
+            delta = "Down"
+        for j in range(1, 29):
+            if stock['delta'][i - j] in delta:
                 stock['Consecutive'][i] += 1
-                consecutiveThreeDayList.append((stock['delta'][i - 2], stock['delta'][i - 1], stock['delta'][i], stock['delta'][i + 1]))
-                if stock['delta'][i - 2] == stock['delta'][i - 3]:
-                    stock['Consecutive'][i] += 1
-                    consecutiveFourDayList.append((stock['delta'][i - 3], stock['delta'][i - 2], stock['delta'][i - 1], stock['delta'][i], stock['delta'][i + 1]))
-    # print(consecutiveTwoDayList)
-    # print(consecutiveThreeDayList)
-    twoDayCounter = collections.Counter(consecutiveTwoDayList)
-    threeDayCounter = collections.Counter(consecutiveThreeDayList)
-    fourDayCounter = collections.Counter(consecutiveFourDayList)
-    twoDayProbabilities = {}
-    threeDayProbabilities = {}
-    fourDayProbabilities = {}
-    for key, value in twoDayCounter.items():
-        value = (value * 1.0)/len(consecutiveTwoDayList)
-        twoDayProbabilities[key] = value
-    for key, value in threeDayCounter.items():
-        value = (value * 1.0)/len(consecutiveThreeDayList)
-        threeDayProbabilities[key] = value
-    for key, value in fourDayCounter.items():
-        value = (value * 1.0)/len(consecutiveFourDayList)
-        fourDayProbabilities[key] = value
-    # print("Two: " + str(twoDayCounter))
-    # print("Three: " + str(threeDayCounter))
-    # print("Four: " + str(fourDayCounter))
-    # print(twoDayProbabilities)
-    # print(threeDayProbabilities)
-    # print(fourDayProbabilities)
-    pd.DataFrame(twoDayProbabilities, index = [0]).to_csv(ticker + 'twoDays.csv', index=False)
-    pd.DataFrame(threeDayProbabilities, index = [0]).to_csv(ticker + 'threeDays.csv', index=False)
-    pd.DataFrame(fourDayProbabilities, index = [0]).to_csv(ticker + 'fourDays.csv', index=False)
+            else:
+                break
     return stock
 
 def analyze(stock):
@@ -317,7 +321,7 @@ def analyze(stock):
             value[0] = value[0] / mSum
 
     df = pd.DataFrame(data=dataDict)
-    df.to_csv(ticker + "marginalProbabilities.csv",index=False)
+    df.to_csv("DataFiles/" + ticker + "marginalProbabilities.csv",index=False)
     return dataDict
 
 def jointAnalysis(stock, daysAhead):
@@ -340,8 +344,8 @@ def jointAnalysis(stock, daysAhead):
     for key, value in partialCounter.items():
         value = (value * 1.0)/len(partialJoints)
         partialProbabilities[key] = value
-    pd.DataFrame(probabilities, index = [0]).to_csv(ticker + 'fullJointDistribution.csv', index=False)
-    pd.DataFrame(partialProbabilities, index = [0]).to_csv(ticker + 'partialJointDistribution.csv', index=False)
+    pd.DataFrame(probabilities, index = [0]).to_csv("DataFiles/" + ticker + 'fullJointDistribution.csv', index=False)
+    pd.DataFrame(partialProbabilities, index = [0]).to_csv("DataFiles/" + ticker + 'partialJointDistribution.csv', index=False)
     return conditionalProbabilities(probabilities, partialProbabilities)
 
 # Calculates conditional probability distributions with indicator independence assumption
@@ -354,7 +358,7 @@ def conditionalProbabilities2(jointDistribution, stock):
         sKey = "S = " + str(key[2])
         mKey = "S = " + str(key[3])
         conditionals["P(D = " + str(key[0]) + " | " + rKey + ", " + sKey + ", " + mKey + ")"] = value/(marginals["P(" + rKey + ")"][0] * marginals["P(" + sKey + ")"][0] * marginals["P(" + mKey + ")"][0])
-    pd.DataFrame(conditionals, index=[0]).to_csv('conditionalProbabilities2.csv', index=False)
+    pd.DataFrame(conditionals, index=[0]).to_csv("DataFiles/conditionalProbabilities2.csv", index=False)
 
 def conditionalProbabilities(jointDistribution, partialJointDistribution):
     conditionals = {}
@@ -369,7 +373,7 @@ def conditionalProbabilities(jointDistribution, partialJointDistribution):
         twelveKey = "12EMA = " + str(key[8])
         twsixKey = "26EMA = " + str(key[9])
         conditionals["P(D = " + str(key[0]) + " | " + rKey + ", " + sKey + ", " + mKey + ", " + cKey + ", " + vKey + ", " + rtKey + ", " + mtKey + ", " + twelveKey + ", " + twsixKey + ")"] = value/(partialJointDistribution[(key[1], key[2], key[3], key[4], key[5], key[6], key[7], key[8], key[9])])
-    pd.DataFrame(conditionals, index=[0]).to_csv(ticker + 'conditionalProbabilities.csv', index=False)
+    pd.DataFrame(conditionals, index=[0]).to_csv("DataFiles/" + ticker + 'conditionalProbabilities.csv', index=False)
     return dictSort(conditionals)
     # return conditionals
 
@@ -388,7 +392,7 @@ def dictSort(oldDict):
                                             key = "P(D = " + delta + " | R = " + str(rsi) + ", S = " + str(stochastic) + ", M = " + str(macd) + ", C = " + str(consecutiveDays) + ", V = " + str(volumeIndication) + ", RT = " + str(rsiTrend) + ", MT = " + str(macdTrend) + ", 12EMA = " + str(twelveEMA) + ", 26EMA = " + str(twsixEMA) + ")"
                                             if key in oldDict:
                                                 sortedDict[key] = oldDict[key]
-    pd.DataFrame(sortedDict, index=[0]).to_csv(ticker + 'SortedConditionalProbabilities.csv', index=False)
+    pd.DataFrame(sortedDict, index=[0]).to_csv("DataFiles/" + ticker + 'SortedConditionalProbabilities.csv', index=False)
     return sortedDict
 
 def convertRSI(percentage):
@@ -539,7 +543,7 @@ def stockHistory(symbol, startDate, endDate, code):
     stock=convergence(stock, 26)
 
     # print(stock)
-    stock.to_csv(symbol + code + ".csv")
+    stock.to_csv("DataFiles/" + symbol + code + ".csv")
     return (stock, classes, transitions)
 
 
@@ -656,7 +660,7 @@ def testing():
     finalPredictionDate = '2018-12-19'
     period = 1
     stockHistories = stockHistory(ticker, "2017-12-29", "2018-12-31", "")[0]
-    items = stockHistory(ticker, "1990-01-01", "2017-12-31", "-")
+    items = stockHistory(ticker, "1990-01-01", "2018-06-30", "-")
     pastHistory = items[0]
     transitions = items[2]
     conditionalProbabilityDistribution = jointAnalysis(pastHistory, period)
@@ -738,7 +742,7 @@ def testing():
     print("Total: " + str(downTotal))
     print("Accuracy: " + str(downCorrect/downTotal))
     accuracyDict["Down"] = ["Correct: " + str(downCorrect), "Total: " + str(downTotal), "Accuracy: " + str(downCorrect/downTotal)]
-    pd.DataFrame([accuracyDict], index = [0]).to_csv(ticker + 'Accuracy Log With R, S, M, C, V, RT, MT, 12-26EMA.csv', index=False)
+    pd.DataFrame([accuracyDict], index = [0]).to_csv("DataFiles/" + ticker + 'Accuracy Log With R, S, M, C, V, RT, MT, 12-26EMA.csv', index=False)
 
 predictionDate = "2018-01-02"
 forecastingPeriod = 1
