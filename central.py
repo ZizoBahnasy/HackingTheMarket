@@ -20,7 +20,7 @@ yf.pdr_override() # <== that's all it takes :-)
 pd.options.mode.chained_assignment = None
 US_BUSINESS_DAY = CustomBusinessDay(calendar=USFederalHolidayCalendar())
 
-ticker = "AAPL"
+ticker = "BABA"
 
 deltaList = ["Very Much Up", "Up", "Neutral", "Down", "Very Much Down"]
 
@@ -82,6 +82,27 @@ def macd(stock):
             stock['MACD'][i] = 0
 
 
+    return stock
+def convergence(stock, period):
+    for i in range(period, len(stock.index)):
+        if stock['Adj Close'][i] - stock['EMA' + str(period)][i] > 0:
+            if stock['Adj Close'][i] - stock['EMA' + str(period)][i] < stock['Adj Close'][i - 1] - stock['EMA' + str(period)][i - 1]:
+                stock['EMA' + str(period) + ' Convergence'][i] = 1.0
+            else:
+                stock['EMA' + str(period) + ' Convergence'][i] = 2.0
+        if stock['Adj Close'][i] - stock['EMA' + str(period)][i] < 0:
+            if stock['EMA' + str(period)][i] - stock['Adj Close'][i] < stock['EMA' + str(period)][i - 1] - stock['Adj Close'][i - 1]:
+                # stock['EMA' + str(period) + ' Convergence'][i] = 2.0
+                stock['EMA' + str(period) + ' Convergence'][i] = 4.0
+            else:
+                # stock['EMA' + str(period) + ' Convergence'][i] = 1.0
+                stock['EMA' + str(period) + ' Convergence'][i] = 3.0
+        if stock['Adj Close'][i] - stock['EMA' + str(period)][i] >= 0 and stock['Adj Close'][i - 1] - stock['EMA' + str(period)][i - 1] < 0:
+            # stock['EMA' + str(period) + ' Convergence'][i] = 2.0
+            stock['EMA' + str(period) + ' Convergence'][i] = 5.0
+        if stock['Adj Close'][i] - stock['EMA' + str(period)][i] <= 0 and stock['Adj Close'][i - 1] - stock['EMA' + str(period)][i - 1] > 0:
+            # stock['EMA' + str(period) + ' Convergence'][i] = 1.0
+            stock['EMA' + str(period) + ' Convergence'][i] = 6.0
     return stock
 
 def rsi(stock, period):
@@ -304,9 +325,11 @@ def jointAnalysis(stock, daysAhead):
     partialJoints = []
     for i in range(26, len(stock.index) - daysAhead):
         item = (stock['delta'][i + daysAhead],
-                convertRSI(stock['RSI'][i]), convertRSI(stock['Stochastic'][i]), convertMACDSignal(stock['MACD'][i] - stock['MACD Signal'][i]), stock['Consecutive'][i], stock['Volume Indicator'][i], stock['RSI Trend'][i], stock['MACD Trend'][i])
+                convertRSI(stock['RSI'][i]), convertRSI(stock['Stochastic'][i]), convertMACDSignal(stock['MACD'][i] - stock['MACD Signal'][i]), stock['Consecutive'][i], stock['Volume Indicator'][i],
+                stock['RSI Trend'][i], stock['MACD Trend'][i], stock['EMA12 Convergence'][i], stock['EMA26 Convergence'][i])
         joints.append(item)
-        partialJoints.append((convertRSI(stock['RSI'][i]), convertRSI(stock['Stochastic'][i]), convertMACDSignal(stock['MACD'][i] - stock['MACD Signal'][i]), stock['Consecutive'][i], stock['Volume Indicator'][i], stock['RSI Trend'][i], stock['MACD Trend'][i]))
+        partialJoints.append((convertRSI(stock['RSI'][i]), convertRSI(stock['Stochastic'][i]), convertMACDSignal(stock['MACD'][i] - stock['MACD Signal'][i]), stock['Consecutive'][i], stock['Volume Indicator'][i],
+                stock['RSI Trend'][i], stock['MACD Trend'][i], stock['EMA12 Convergence'][i], stock['EMA26 Convergence'][i]))
     counter = collections.Counter(joints)
     partialCounter = collections.Counter(partialJoints)
     probabilities = {}
@@ -343,24 +366,29 @@ def conditionalProbabilities(jointDistribution, partialJointDistribution):
         vKey = "V = " + str(key[5])
         rtKey = "RT = " + str(key[6])
         mtKey = "MT = " + str(key[7])
-        conditionals["P(D = " + str(key[0]) + " | " + rKey + ", " + sKey + ", " + mKey + ", " + cKey + ", " + vKey + ", " + rtKey + ", " + mtKey + ")"] = value/(partialJointDistribution[(key[1], key[2], key[3], key[4], key[5], key[6], key[7])])
+        twelveKey = "12EMA = " + str(key[8])
+        twsixKey = "26EMA = " + str(key[9])
+        conditionals["P(D = " + str(key[0]) + " | " + rKey + ", " + sKey + ", " + mKey + ", " + cKey + ", " + vKey + ", " + rtKey + ", " + mtKey + ", " + twelveKey + ", " + twsixKey + ")"] = value/(partialJointDistribution[(key[1], key[2], key[3], key[4], key[5], key[6], key[7], key[8], key[9])])
     pd.DataFrame(conditionals, index=[0]).to_csv(ticker + 'conditionalProbabilities.csv', index=False)
     return dictSort(conditionals)
+    # return conditionals
 
 def dictSort(oldDict):
     sortedDict = {}
-    for macdTrend in range(5):
-        for rsiTrend in range(5):
-            for volumeIndication in range(2):
-                for consecutiveDays in range(1, 4):
-                    for macd in range(2):
-                        for stochastic in range(5):
-                            for rsi in range(5):
-                                for delta in deltaList:
-                                    key = "P(D = " + delta + " | R = " + str(rsi) + ", S = " + str(stochastic) + ", M = " + str(macd) + ", C = " + str(consecutiveDays) + ", V = " + str(volumeIndication) + ", RT = " + str(rsiTrend) + ", MT = " + str(macdTrend) + ")"
-                                    if key in oldDict:
-                                        sortedDict[key] = oldDict[key]
-    pd.DataFrame(sortedDict, index=[0]).to_csv(ticker + 'FinalConditionalProbabilities.csv', index=False)
+    for twsixEMA in range(3):
+        for twelveEMA in range(3):
+            for macdTrend in range(5):
+                for rsiTrend in range(5):
+                    for volumeIndication in range(2):
+                        for consecutiveDays in range(1, 4):
+                            for macd in range(2):
+                                for stochastic in range(5):
+                                    for rsi in range(5):
+                                        for delta in deltaList:
+                                            key = "P(D = " + delta + " | R = " + str(rsi) + ", S = " + str(stochastic) + ", M = " + str(macd) + ", C = " + str(consecutiveDays) + ", V = " + str(volumeIndication) + ", RT = " + str(rsiTrend) + ", MT = " + str(macdTrend) + ", 12EMA = " + str(twelveEMA) + ", 26EMA = " + str(twsixEMA) + ")"
+                                            if key in oldDict:
+                                                sortedDict[key] = oldDict[key]
+    pd.DataFrame(sortedDict, index=[0]).to_csv(ticker + 'SortedConditionalProbabilities.csv', index=False)
     return sortedDict
 
 def convertRSI(percentage):
@@ -435,16 +463,19 @@ def stockHistory(symbol, startDate, endDate, code):
     stock['delta'] = "Test"
     stock['EMA12'] = 0.0
     stock['EMA26'] = 0.0
+    stock['EMA12 Convergence'] = 0
+    stock['EMA26 Convergence'] = 0
     stock['MACD'] = 0.0
     stock['MACD Signal'] = 0.0
-    stock['MACD Trend'] = 0.0
+    stock['MACD Trend'] = 0
     stock['RSI'] = 0.0
-    stock['RSI Trend'] = 0.0
+    stock['RSI Trend'] = 0
     stock['Stochastic'] = 0.0
     stock['Stochastic SMA'] = 0.0
     stock['Consecutive'] = 1
     stock['Consecutive Recommendation'] = "Test"
-    stock['Volume Indicator'] = 0.0
+    stock['Volume Indicator'] = 0
+
 
     probabilities = [0, 0, 0, 0, 0]
     transitions = [[0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0]]
@@ -504,6 +535,8 @@ def stockHistory(symbol, startDate, endDate, code):
     stock=stochastic(stock, 14)
     stock=consecutive(stock)
     stock=volumeIndicator(stock)
+    stock=convergence(stock, 12)
+    stock=convergence(stock, 26)
 
     # print(stock)
     stock.to_csv(symbol + code + ".csv")
@@ -512,6 +545,7 @@ def stockHistory(symbol, startDate, endDate, code):
 
 def predictor(stock, conditionalProbabilityDistribution, period, date, transitions, indicator):
     prediction = "Neutral"
+    system = "Default"
     dateDate = datetime.datetime.strptime(date, '%Y-%m-%d').date()
 
     checkValue = 0.0
@@ -535,11 +569,13 @@ def predictor(stock, conditionalProbabilityDistribution, period, date, transitio
         vKey = stock['Volume Indicator'][yesterday]
         rtKey = stock['RSI Trend'][yesterday]
         mtKey = stock['MACD Trend'][yesterday]
+        twelveKey = stock['EMA12 Convergence'][yesterday]
+        twsixKey = stock['EMA26 Convergence'][yesterday]
 
         choices = []
 
         for delta in deltaList:
-            key = "P(D = " + delta + " | R = " + str(rKey) + ", S = " + str(sKey) + ", M = " + str(mKey) + ", C = " + str(cKey) + ", V = " + str(vKey) + ", RT = " + str(rtKey) + ", MT = " + str(mtKey) + ")"
+            key = "P(D = " + delta + " | R = " + str(rKey) + ", S = " + str(sKey) + ", M = " + str(mKey) + ", C = " + str(cKey) + ", V = " + str(vKey) + ", RT = " + str(rtKey) + ", MT = " + str(mtKey) + ", 12EMA = " + str(twelveKey) + ", 26EMA = " + str(twsixKey) + ")"
             if key in conditionalProbabilityDistribution:
                 choices.append((delta, conditionalProbabilityDistribution[key]))
             else:
@@ -551,14 +587,14 @@ def predictor(stock, conditionalProbabilityDistribution, period, date, transitio
 
         if indicator == 0:
             prediction = max(choices, key = lambda x: x[1])[0]
-
+            system = "Conditional Probabilities"
         elif indicator == 1:
             matrix = transitions[listIndex]
             prediction = deltaList[max(enumerate(matrix), key = lambda x: x[1])[0]]
-
+            system = "Emissions Model"
         elif indicator == 2:
             prediction = pastChange
-
+            system = "Naive (Last Change)"
         elif indicator == 3:
             if pastChange == "Very Much Up" or pastChange == "Up":
                 prediction = "Down"
@@ -566,14 +602,14 @@ def predictor(stock, conditionalProbabilityDistribution, period, date, transitio
                 prediction = "Up"
             else:
                 prediction = pastChange
-
+            system = "Opposite"
         elif indicator == 4:
             checkValue = random.random()
             upSum = sum(transitions[0]) + sum(transitions[1])
             neutralSum = sum(transitions[2])
             downSum = sum(transitions[3]) + sum(transitions[4])
             totalSum = upSum + neutralSum + downSum
-
+            system = "Random"
             if checkValue <= upSum/totalSum:
                 prediction = "Up"
             elif checkValue < (upSum + neutralSum)/totalSum:
@@ -581,7 +617,15 @@ def predictor(stock, conditionalProbabilityDistribution, period, date, transitio
             else:
                 prediction = "Down"
 
-        print("Prediction: The price will move " + prediction + " on " + date.strftime('%Y-%m-%d'))
+        elif indicator == 5:
+            prediction = "Up"
+            system = "Only Up"
+
+        elif indicator == 6:
+            prediction = "Down"
+            system = "Only Down"
+
+        print(system + " Prediction: The price will move " + prediction + " on " + date.strftime('%Y-%m-%d'))
         if date.strftime('%Y-%m-%d') in stock['RSI']:
             realAction = stock['delta'][date.strftime('%Y-%m-%d')]
             print("True action: " + realAction)
@@ -609,10 +653,10 @@ def testing():
     startDate = '2018-01-01'
     predictionDateString = startDate
     predictionDate = datetime.datetime.strptime(predictionDateString, '%Y-%m-%d').date()
-    finalPredictionDate = '2018-12-18'
+    finalPredictionDate = '2018-12-19'
     period = 1
     stockHistories = stockHistory(ticker, "2017-12-29", "2018-12-31", "")[0]
-    items = stockHistory(ticker, "2000-01-01", "2017-12-31", "-")
+    items = stockHistory(ticker, "1990-01-01", "2017-12-31", "-")
     pastHistory = items[0]
     transitions = items[2]
     conditionalProbabilityDistribution = jointAnalysis(pastHistory, period)
@@ -628,6 +672,11 @@ def testing():
     oppositeNaiveTotal = 0
     randomCorrect = 0.0
     randomTotal = 0.0
+    upCorrect = 0.0
+    upTotal = 0.0
+    downCorrect = 0.0
+    downTotal = 0.0
+
     while predictionDate < datetime.datetime.strptime(finalPredictionDate, '%Y-%m-%d').date() + timedelta(days=1):
         if is_business_day(predictionDate):
             conditionalPredictionTuple = predictor(stockHistories, conditionalProbabilityDistribution, period, predictionDate.strftime('%Y-%m-%d'), transitions, 0)
@@ -635,6 +684,8 @@ def testing():
             naiveTuple = predictor(stockHistories, conditionalProbabilityDistribution, period, predictionDate.strftime('%Y-%m-%d'), transitions, 2)
             oppositeNaiveTuple = predictor(stockHistories, conditionalProbabilityDistribution, period, predictionDate.strftime('%Y-%m-%d'), transitions, 3)
             randomTuple = predictor(stockHistories, conditionalProbabilityDistribution, period, predictionDate.strftime('%Y-%m-%d'), transitions, 4)
+            upTuple = predictor(stockHistories, conditionalProbabilityDistribution, period, predictionDate.strftime('%Y-%m-%d'), transitions, 5)
+            downTuple = predictor(stockHistories, conditionalProbabilityDistribution, period, predictionDate.strftime('%Y-%m-%d'), transitions, 6)
             conditionalCorrect += conditionalPredictionTuple[0]
             conditionalTotal += conditionalPredictionTuple[1]
             transitionsCorrect += transitionsPredictionTuple[0]
@@ -645,6 +696,10 @@ def testing():
             oppositeNaiveTotal += oppositeNaiveTuple[1]
             randomCorrect += randomTuple[0]
             randomTotal += randomTuple[1]
+            upCorrect += upTuple[0]
+            upTotal += upTuple[1]
+            downCorrect += downTuple[0]
+            downTotal += downTuple[1]
         predictionDate = next_weekday(predictionDate, period)
     accuracyDict = {}
 
@@ -653,7 +708,7 @@ def testing():
     print("Total: " + str(conditionalTotal))
     print("Accuracy: " + str(conditionalCorrect/conditionalTotal))
     accuracyDict["Conditional Probability"] = ["Correct: " + str(conditionalCorrect), "Total: " + str(conditionalTotal), "Accuracy: " + str(conditionalCorrect/conditionalTotal)]
-    print("Emmisions Prediction Accuracy: ")
+    print("Emissions Prediction Accuracy: ")
     print("Correct: " + str(transitionsCorrect))
     print("Total: " + str(transitionsTotal))
     print("Accuracy: " + str(transitionsCorrect/transitionsTotal))
@@ -673,7 +728,17 @@ def testing():
     print("Total: " + str(randomTotal))
     print("Accuracy: " + str(randomCorrect/randomTotal))
     accuracyDict["Random"] = ["Correct: " + str(randomCorrect), "Total: " + str(randomTotal), "Accuracy: " + str(randomCorrect/randomTotal)]
-    pd.DataFrame([accuracyDict], index = [0]).to_csv(ticker + 'Accuracy Log With R, S, M, C, V.csv', index=False)
+    print("Up Prediction Accuracy: ")
+    print("Correct: " + str(upCorrect))
+    print("Total: " + str(upTotal))
+    print("Accuracy: " + str(upCorrect/upTotal))
+    accuracyDict["Up"] = ["Correct: " + str(upCorrect), "Total: " + str(upTotal), "Accuracy: " + str(upCorrect/upTotal)]
+    print("Down Prediction Accuracy: ")
+    print("Correct: " + str(downCorrect))
+    print("Total: " + str(downTotal))
+    print("Accuracy: " + str(downCorrect/downTotal))
+    accuracyDict["Down"] = ["Correct: " + str(downCorrect), "Total: " + str(downTotal), "Accuracy: " + str(downCorrect/downTotal)]
+    pd.DataFrame([accuracyDict], index = [0]).to_csv(ticker + 'Accuracy Log With R, S, M, C, V, RT, MT, 12-26EMA.csv', index=False)
 
 predictionDate = "2018-01-02"
 forecastingPeriod = 1
