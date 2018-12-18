@@ -22,7 +22,8 @@ US_BUSINESS_DAY = CustomBusinessDay(calendar=USFederalHolidayCalendar())
 
 ticker = "BABA"
 
-deltaList = ["Very Much Up", "Up", "Neutral", "Down", "Very Much Down"]
+# deltaList = ["Very Much Up", "Up", "Neutral", "Down", "Very Much Down"]
+deltaList = ["Up", "Neutral", "Down"]
 
 def ema(stock, period, code):
     if code == "EMA":
@@ -359,21 +360,33 @@ def convertMACDSignal(difference):
 # probability matrix
 def convert(percentage, probabilities):
     if isinstance(percentage, float):
-        if percentage > 0.025:
+        if percentage > 0.0010:
             probabilities[0] += 1
-            return ["Very Much Up", probabilities, 0]
-        if percentage <= 0.025 and percentage > 0.0010:
-            probabilities[1] += 1
-            return ["Up", probabilities, 1]
-        if percentage >= -0.025 and percentage < -0.0010:
-            probabilities[3] += 1
-            return ["Down", probabilities, 3]
-        if percentage < -0.025:
-            probabilities[4] += 1
-            return ["Very Much Down", probabilities, 4]
+            return ["Up", probabilities, 0]
+        if percentage < -0.0010:
+            probabilities[2] += 1
+            return ["Down", probabilities, 2]
         else:
             probabilities[2] += 1
-            return ["Neutral", probabilities, 2]
+            return ["Neutral", probabilities, 1]
+
+# def convert(percentage, probabilities):
+#     if isinstance(percentage, float):
+#         if percentage > 0.025:
+#             probabilities[0] += 1
+#             return ["Very Much Up", probabilities, 0]
+#         if percentage <= 0.025 and percentage > 0.0010:
+#             probabilities[1] += 1
+#             return ["Up", probabilities, 1]
+#         if percentage >= -0.025 and percentage < -0.0010:
+#             probabilities[3] += 1
+#             return ["Down", probabilities, 3]
+#         if percentage < -0.025:
+#             probabilities[4] += 1
+#             return ["Very Much Down", probabilities, 4]
+#         else:
+#             probabilities[2] += 1
+#             return ["Neutral", probabilities, 2]
 
 def prev_weekday(adate, period):
     # adate -= timedelta(days=period)
@@ -424,19 +437,28 @@ def stockHistory(symbol, startDate, endDate, code):
     stock['Consecutive'] = 1
     stock['Consecutive Recommendation'] = "Test"
 
-    probabilities = [0, 0, 0, 0, 0]
-    transitions = [[0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0]]
+    # probabilities = [0, 0, 0, 0, 0]
+    probabilities = [0, 0, 0]
+    # transitions = [[0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0]]
+    transitions = [[0,0,0],[0,0,0],[0,0,0]]
     transitionsDict = {}
-    for key in [('Very Much Up', 'Very Much Up'), ('Very Much Up', 'Up'), ('Very Much Up', 'Neutral'), ('Very Much Up', 'Down'), ('Very Much Up', 'Very Much Down')]:
+    for key in [('Up', 'Up'), ('Up', 'Neutral'), ('Up', 'Down')]:
         transitionsDict[key] = 0
-    for key in [('Up', 'Very Much Up'), ('Up', 'Up'), ('Up', 'Neutral'), ('Up', 'Down'), ('Up', 'Very Much Down')]:
+    for key in [('Neutral', 'Up'), ('Neutral', 'Neutral'), ('Neutral', 'Down')]:
         transitionsDict[key] = 0
-    for key in [('Neutral', 'Very Much Up'), ('Neutral', 'Up'), ('Neutral', 'Neutral'), ('Neutral', 'Down'), ('Neutral', 'Very Much Down')]:
+    for key in [('Down', 'Up'), ('Down', 'Neutral'), ('Down', 'Down')]:
         transitionsDict[key] = 0
-    for key in [('Down', 'Very Much Up'), ('Down', 'Up'), ('Down', 'Neutral'), ('Down', 'Down'), ('Down', 'Very Much Down')]:
-        transitionsDict[key] = 0
-    for key in [('Very Much Down', 'Very Much Up'), ('Very Much Down', 'Up'), ('Very Much Down', 'Neutral'), ('Very Much Down', 'Down'), ('Very Much Down', 'Very Much Down')]:
-        transitionsDict[key] = 0
+    # for key in [('Very Much Up', 'Very Much Up'), ('Very Much Up', 'Up'), ('Very Much Up', 'Neutral'), ('Very Much Up', 'Down'), ('Very Much Up', 'Very Much Down')]:
+    #     transitionsDict[key] = 0
+    # for key in [('Up', 'Very Much Up'), ('Up', 'Up'), ('Up', 'Neutral'), ('Up', 'Down'), ('Up', 'Very Much Down')]:
+    #     transitionsDict[key] = 0
+    # for key in [('Neutral', 'Very Much Up'), ('Neutral', 'Up'), ('Neutral', 'Neutral'), ('Neutral', 'Down'), ('Neutral', 'Very Much Down')]:
+    #     transitionsDict[key] = 0
+    # for key in [('Down', 'Very Much Up'), ('Down', 'Up'), ('Down', 'Neutral'), ('Down', 'Down'), ('Down', 'Very Much Down')]:
+    #     transitionsDict[key] = 0
+    # for key in [('Very Much Down', 'Very Much Up'), ('Very Much Down', 'Up'), ('Very Much Down', 'Neutral'), ('Very Much Down', 'Down'), ('Very Much Down', 'Very Much Down')]:
+    #     transitionsDict[key] = 0
+
 
     sums = 0
     classes = []
@@ -448,19 +470,28 @@ def stockHistory(symbol, startDate, endDate, code):
         classes.append(result[2])
         if i > 0:
             transitionsDict[(result[0], stock['delta'][i - 1])] += 1
-            if stock['delta'][i - 1] is "Very Much Up":
+            # if stock['delta'][i - 1] is "Very Much Up":
+            #     transitions[result[2]][0] += 1
+            #     sums += 1
+            # elif stock['delta'][i - 1] is "Up":
+            #     transitions[result[2]][1] += 1
+            #     sums += 1
+            # elif stock['delta'][i - 1] is "Neutral":
+            #     transitions[result[2]][2] += 1
+            #     sums += 1
+            # elif stock['delta'][i - 1] is "Down":
+            #     transitions[result[2]][3] += 1
+            # elif stock['delta'][i - 1] is "Very Much Down":
+            #     transitions[result[2]][4] += 1
+            #     sums += 1
+            if stock['delta'][i - 1] is "Up":
                 transitions[result[2]][0] += 1
                 sums += 1
-            elif stock['delta'][i - 1] is "Up":
+            elif stock['delta'][i - 1] is "Neutral":
                 transitions[result[2]][1] += 1
                 sums += 1
-            elif stock['delta'][i - 1] is "Neutral":
-                transitions[result[2]][2] += 1
-                sums += 1
             elif stock['delta'][i - 1] is "Down":
-                transitions[result[2]][3] += 1
-            elif stock['delta'][i - 1] is "Very Much Down":
-                transitions[result[2]][4] += 1
+                transitions[result[2]][2] += 1
                 sums += 1
 
             # Not sure why there is a leakage here
@@ -470,8 +501,10 @@ def stockHistory(symbol, startDate, endDate, code):
         # stock.set_value(i, 'delta', convert(stock.iloc[i]['pctChange']))
 
     probabilitiesPct = []
-    summed = probabilities[0] + probabilities[1] + probabilities[2] + probabilities[3] + probabilities[4]
-    probabilitiesPct = [probabilities[0]/summed, probabilities[1]/summed, probabilities[2]/summed, probabilities[3]/summed, probabilities[4]/summed]
+    # summed = probabilities[0] + probabilities[1] + probabilities[2] + probabilities[3] + probabilities[4]
+    summed = probabilities[0] + probabilities[1] + probabilities[2]
+    # probabilitiesPct = [probabilities[0]/summed, probabilities[1]/summed, probabilities[2]/summed, probabilities[3]/summed, probabilities[4]/summed]
+    probabilitiesPct = [probabilities[0]/summed, probabilities[1]/summed, probabilities[2]/summed]
 
     print(transitions)
     stock=ema(stock, 12, 'EMA')
@@ -543,9 +576,9 @@ def predictor(stock, conditionalProbabilityDistribution, period, date, transitio
 
         elif indicator == 4:
             checkValue = random.random()
-            upSum = sum(transitions[0]) + sum(transitions[1])
-            neutralSum = sum(transitions[2])
-            downSum = sum(transitions[3]) + sum(transitions[4])
+            upSum = sum(transitions[0])
+            neutralSum = sum(transitions[1])
+            downSum = sum(transitions[2])
             totalSum = upSum + neutralSum + downSum
 
             if checkValue <= upSum/totalSum:
@@ -648,8 +681,8 @@ print(endDate)
 # stock = pdr.get_data_yahoo(ticker, start="2010-01-01", end=endDate)
 
 testing()
-
-""" Naives Bayes Classification """
+#
+# """ Naives Bayes Classification """
 
 stock, classes = stockHistory(ticker, "2010-01-01", "2018-12-31")
 
@@ -684,9 +717,9 @@ predictedclasses = NB.predict(testX)
 print("Accuracy:")
 print (metrics.accuracy_score(testclasses, predictedclasses))
 
-If we implement the NB on our own:
-1) Training: count the number of rows with each of the 5 perc_change classes
-             build a dictionary with all the possible values/intervals for each feature (that requires discretizing the features as well)
-             count the occurences of each features interval in each perc_change class
-             fit the model using the same equation as in q5 of NaiveBayes.py
-             test it on (testX, predictedclasses) in the same way as q6
+# If we implement the NB on our own:
+# 1) Training: count the number of rows with each of the 5 perc_change classes
+#              build a dictionary with all the possible values/intervals for each feature (that requires discretizing the features as well)
+#              count the occurences of each features interval in each perc_change class
+#              fit the model using the same equation as in q5 of NaiveBayes.py
+#              test it on (testX, predictedclasses) in the same way as q6
