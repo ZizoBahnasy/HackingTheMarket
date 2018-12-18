@@ -244,9 +244,9 @@ def consecutive(stock):
     There are two potential outcomes of this kind of repetition: (1) a solidified trend that keeps going;
     or (2) a change in direction to converge back to a "real price."  We originally built a transitions probability matrix
     based on consecutive days (e.g. if you witness Down, Down, Down, what are the probabilities of the price going Up vs Down
-    the next day), but that technique does not fit perfectly into the classification system, so we decided instead simply to include the
-    number of consecutive days as a feature with the understanding that the course of training should interpret historical instances of
-    consecutive movement into probabilities for the future."""
+    the next day), but that technique does not fit perfectly into the classification system (it spits out its own recommendation
+    instead), so we decided simply to include the number of consecutive days as a feature with the understanding that
+    the course of training should interpret historical instances of consecutive movement into probabilities for the future."""
     delta = "Neutral"
     for i in range(29, len(stock.index) - 1):
         delta = stock['delta'][i]
@@ -261,104 +261,46 @@ def consecutive(stock):
                 break
     return stock
 
-def analyze(stock):
-
-    rSum = 0
-    sSum = 0
-    mSum = 0
-    dataDict = {}
-    for i in range(5):
-        dataDict['P(R = ' + str(i) + ')'] = [0.0]
-    for i in range(5):
-        dataDict['P(S = ' + str(i) + ')'] = [0.0]
-    for i in range(2):
-        dataDict['P(M = ' + str(i) + ')'] = [0.0]
-
-    for i in range(26, len(stock.index)):
-        if stock["RSI"][i] < 20.0:
-            dataDict['P(R = 0)'][0] += 1.0
-            rSum += 1
-        elif stock["RSI"][i] < 40.0:
-            dataDict['P(R = 1)'][0] += 1.0
-            rSum += 1
-        elif stock["RSI"][i] < 60.0:
-            dataDict['P(R = 2)'][0] += 1.0
-            rSum += 1
-        elif stock["RSI"][i] < 80.0:
-            dataDict['P(R = 3)'][0] += 1.0
-            rSum += 1
-        else:
-            dataDict['P(R = 4)'][0] += 1.0
-            rSum += 1
-        if stock["Stochastic"][i] < 20.0:
-            dataDict['P(S = 0)'][0] += 1.0
-            sSum += 1
-        elif stock["Stochastic"][i] < 40.0:
-            dataDict['P(S = 1)'][0] += 1.0
-            sSum += 1
-        elif stock["Stochastic"][i] < 60.0:
-            dataDict['P(S = 2)'][0] += 1.0
-            sSum += 1
-        elif stock["Stochastic"][i] < 80.0:
-            dataDict['P(S = 3)'][0] += 1.0
-            sSum += 1
-        else:
-            dataDict['P(S = 4)'][0] += 1.0
-            sSum += 1
-        if stock['MACD'][i] >= stock['MACD Signal'][i]:
-            dataDict['P(M = 1)'][0] += 1.0
-            mSum += 1
-        else:
-            dataDict['P(M = 0)'][0] += 1.0
-            mSum += 1
-
-    for key, value in dataDict.items():
-        if 'R' in key:
-            value[0] = value[0] / rSum
-        elif 'S' in key:
-            value[0] = value[0] / sSum
-        else:
-            value[0] = value[0] / mSum
-
-    df = pd.DataFrame(data=dataDict)
-    df.to_csv("DataFiles/" + ticker + "marginalProbabilities.csv",index=False)
-    return dataDict
-
 def jointAnalysis(stock, daysAhead):
+    """This function calculates the joint distributions we need to calculate the probability of a given move based on our recorded
+    indicators.  This is a frequentist application of a Bayes Net.  An alternative and equally viable approach would have been to
+    calculate the marginal probability of each indicator (which are parent nodes to the future price change according to our problem
+    structure), and divide the full joint distribution by the product of those potentially independent probabilities, but the use of
+    a frequentist joint istribution that includes each result and all the indicators for the numerator makes it very easy simply to
+    divide by a joint distribution of the indicators.  Therefore, we are producing P(A|B, C) = P(A, B, C)/P(B, C) here (but with nine
+    given indicators) for each possible move."""
     joints = []
     partialJoints = []
     for i in range(26, len(stock.index) - daysAhead):
-        item = (stock['delta'][i + daysAhead],
+        fullDistribution = (stock['delta'][i + daysAhead],
                 convertRSI(stock['RSI'][i]), convertRSI(stock['Stochastic'][i]), convertMACDSignal(stock['MACD'][i] - stock['MACD Signal'][i]), stock['Consecutive'][i], stock['Volume Indicator'][i],
                 stock['RSI Trend'][i], stock['MACD Trend'][i], stock['EMA12 Convergence'][i], stock['EMA26 Convergence'][i])
-        joints.append(item)
-        partialJoints.append((convertRSI(stock['RSI'][i]), convertRSI(stock['Stochastic'][i]), convertMACDSignal(stock['MACD'][i] - stock['MACD Signal'][i]), stock['Consecutive'][i], stock['Volume Indicator'][i],
-                stock['RSI Trend'][i], stock['MACD Trend'][i], stock['EMA12 Convergence'][i], stock['EMA26 Convergence'][i]))
+        partialDistribution = (convertRSI(stock['RSI'][i]), convertRSI(stock['Stochastic'][i]), convertMACDSignal(stock['MACD'][i] - stock['MACD Signal'][i]), stock['Consecutive'][i], stock['Volume Indicator'][i],
+                stock['RSI Trend'][i], stock['MACD Trend'][i], stock['EMA12 Convergence'][i], stock['EMA26 Convergence'][i])
+        joints.append(fullDistribution)
+        partialJoints.append(partialDistribution)
+
     counter = collections.Counter(joints)
     partialCounter = collections.Counter(partialJoints)
+
     probabilities = {}
     partialProbabilities = {}
+
+    # Calculates the probability of each joint distribution
     for key, value in counter.items():
         value = (value * 1.0)/len(joints)
         probabilities[key] = value
+
+    # Calculates the probability of each partial joint distribution
     for key, value in partialCounter.items():
         value = (value * 1.0)/len(partialJoints)
         partialProbabilities[key] = value
+
     pd.DataFrame(probabilities, index = [0]).to_csv("DataFiles/" + ticker + 'fullJointDistribution.csv', index=False)
     pd.DataFrame(partialProbabilities, index = [0]).to_csv("DataFiles/" + ticker + 'partialJointDistribution.csv', index=False)
-    return conditionalProbabilities(probabilities, partialProbabilities)
 
-# Calculates conditional probability distributions with indicator independence assumption
-def conditionalProbabilities2(jointDistribution, stock):
-    conditionals = {}
-    marginals = analyze(stock)
-    # print(marginals["P(R = 3)"])
-    for key, value in jointDistribution.items():
-        rKey = "R = " + str(key[1])
-        sKey = "S = " + str(key[2])
-        mKey = "S = " + str(key[3])
-        conditionals["P(D = " + str(key[0]) + " | " + rKey + ", " + sKey + ", " + mKey + ")"] = value/(marginals["P(" + rKey + ")"][0] * marginals["P(" + sKey + ")"][0] * marginals["P(" + mKey + ")"][0])
-    pd.DataFrame(conditionals, index=[0]).to_csv("DataFiles/conditionalProbabilities2.csv", index=False)
+    # The function in the return statement returns the actual conditional probabilities (and so does the actual math past the joint distribution work)
+    return conditionalProbabilities(probabilities, partialProbabilities)
 
 def conditionalProbabilities(jointDistribution, partialJointDistribution):
     conditionals = {}
@@ -659,8 +601,8 @@ def testing():
     predictionDate = datetime.datetime.strptime(predictionDateString, '%Y-%m-%d').date()
     finalPredictionDate = '2018-12-19'
     period = 1
-    stockHistories = stockHistory(ticker, "2017-12-29", "2018-12-31", "")[0]
-    items = stockHistory(ticker, "1990-01-01", "2018-06-30", "-")
+    stockHistories = stockHistory(ticker, "2014-12-29", "2018-12-31", "Full")[0]
+    items = stockHistory(ticker, "1990-01-01", "2017-12-31", "Historical")
     pastHistory = items[0]
     transitions = items[2]
     conditionalProbabilityDistribution = jointAnalysis(pastHistory, period)
@@ -742,7 +684,7 @@ def testing():
     print("Total: " + str(downTotal))
     print("Accuracy: " + str(downCorrect/downTotal))
     accuracyDict["Down"] = ["Correct: " + str(downCorrect), "Total: " + str(downTotal), "Accuracy: " + str(downCorrect/downTotal)]
-    pd.DataFrame([accuracyDict], index = [0]).to_csv("DataFiles/" + ticker + 'Accuracy Log With R, S, M, C, V, RT, MT, 12-26EMA.csv', index=False)
+    pd.DataFrame([accuracyDict], index = [0]).to_csv("DataFiles/" + ticker + ' Accuracy Log With R, S, M, C, V, RT, MT, 12-26EMA.csv', index=False)
 
 predictionDate = "2018-01-02"
 forecastingPeriod = 1
