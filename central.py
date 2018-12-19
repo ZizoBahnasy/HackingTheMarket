@@ -16,13 +16,18 @@ import random
 import os
 
 import fix_yahoo_finance as yf, numpy as np
-yf.pdr_override() # <== that's all it takes :-)
+
+# Yahoo! Finance no longer works, so the following line is a patch
+yf.pdr_override()
 
 pd.options.mode.chained_assignment = None
+
 US_BUSINESS_DAY = CustomBusinessDay(calendar=USFederalHolidayCalendar())
 
-ticker = "BABA"
+# Stock to analyze
+ticker = "FB"
 
+# List of discretely labeled price movements
 deltaList = ["Very Much Up", "Up", "Neutral", "Down", "Very Much Down"]
 
 
@@ -105,7 +110,6 @@ def macd(stock):
             stock['MACD'][i] = 0
     return stock
 
-
 def convergence(stock, period):
     """The EMA Convergence assigns the price movement discretized values (from 1 to 6)
     based on whether the price is approaching or moving away from its EMA (and based on which
@@ -133,7 +137,6 @@ def convergence(stock, period):
             # stock['EMA' + str(period) + ' Convergence'][i] = 1.0
             stock['EMA' + str(period) + ' Convergence'][i] = 6.0
     return stock
-
 
 def rsi(stock, period):
     """The relative strength index (RSI) of the stock price is an indicator that illustrates "overbuying"/"overselling"
@@ -238,8 +241,6 @@ def volumeIndicator(stock):
             stock['Volume Indicator'][i] = 1.0
     return stock
 
-
-
 def consecutive(stock):
     """Another indicator is the number of consecutive trading days a stock has moved in a single direction.
     There are two potential outcomes of this kind of repetition: (1) a solidified trend that keeps going;
@@ -304,6 +305,10 @@ def jointAnalysis(stock, daysAhead):
     return conditionalProbabilities(probabilities, partialProbabilities)
 
 def conditionalProbabilities(jointDistribution, partialJointDistribution):
+    """Creates a dictionary with keys P(A|B, C) for each price delta in the joint distribution and every combination of indicators.
+    Each key is assigned a value equal to the probability of the sum joint distribution (P(A, B, C)) divided by the probability
+    of the partial joint distribution (P(B, C)).  This is our inference on the frequentist-built Bayes Net and forms the core of
+    our classification technique."""
     conditionals = {}
     for key, value in jointDistribution.items():
         rKey = "R = " + str(key[1])
@@ -317,10 +322,13 @@ def conditionalProbabilities(jointDistribution, partialJointDistribution):
         twsixKey = "26EMA = " + str(key[9])
         conditionals["P(D = " + str(key[0]) + " | " + rKey + ", " + sKey + ", " + mKey + ", " + cKey + ", " + vKey + ", " + rtKey + ", " + mtKey + ", " + twelveKey + ", " + twsixKey + ")"] = value/(partialJointDistribution[(key[1], key[2], key[3], key[4], key[5], key[6], key[7], key[8], key[9])])
     pd.DataFrame(conditionals, index=[0]).to_csv("DataFiles/" + ticker + 'conditionalProbabilities.csv', index=False)
+
+    # conditionals is a complete probability distribution, but it is not very orderly for the human eye, so we sort it first
     return dictSort(conditionals)
     # return conditionals
 
 def dictSort(oldDict):
+    """This function orders the conditional distribution by header value, so it is sequential visually and can be affirmed."""
     sortedDict = {}
     for twsixEMA in range(3):
         for twelveEMA in range(3):
@@ -339,21 +347,23 @@ def dictSort(oldDict):
     return sortedDict
 
 def convertRSI(percentage):
+    """Makes the 0-100 RSI discrete with 5 values: 0, 1, 2, 3, 4."""
     value = int(percentage * 0.05)
     if value == 5:
         value = 4
     return value
 
 def convertMACDSignal(difference):
+    """An indicator variable of whether or not the MACD is greater than its signal."""
     if difference >= 0:
         return 1
     else:
         return 0
     # table['P(R = )']
 
-# Converts continuous price data to discrete labels and builds out emission-to-emission
-# probability matrix
 def convert(percentage, probabilities):
+    """Converts continuous price data to discrete labels and builds out emission-to-emission
+    probability matrix"""
     if isinstance(percentage, float):
         if percentage > 0.025:
             probabilities[0] += 1
@@ -372,23 +382,28 @@ def convert(percentage, probabilities):
             return ["Neutral", probabilities, 2]
 
 def prev_weekday(adate, period):
-    # adate -= timedelta(days=period)
+    """Calculates the previous weekday (US business day).  Keep in mind we must work
+    within the parameters of functional trading days."""
     adate -= US_BUSINESS_DAY * period
     while not is_business_day(adate): # Mon-Fri are 0-4
-        # adate -= timedelta(days=1)
+
         adate -= US_BUSINESS_DAY
     return adate
 
 def next_weekday(adate, period):
+    """Calculates the next weekday (US business day).  Keep in mind we must work
+    within the parameters of functional trading days."""
     adate += timedelta(days=period)
     while not is_business_day(adate): # Mon-Fri are 0-4
         adate += timedelta(days=1)
     return adate
 
 def is_business_day(date):
+    """Checks whether a date is a US business day.  Technique found online."""
     return bool(len(pd.bdate_range(date, date)))
 
 def stockHistory(symbol, startDate, endDate, code):
+    """Compiles and processes the actual stock data.  Constructs transitions matrix and sets indicator values."""
     stock = pdr.get_data_yahoo(symbol, start=startDate, end=endDate)
 
     # Assign `Adj Close` to `daily_close`
@@ -407,6 +422,7 @@ def stockHistory(symbol, startDate, endDate, code):
     stock.fillna(0, inplace=True)
 
 
+    # Default values necessary for later modification
     stock['delta'] = "Test"
     stock['EMA12'] = 0.0
     stock['EMA26'] = 0.0
@@ -420,10 +436,10 @@ def stockHistory(symbol, startDate, endDate, code):
     stock['Stochastic'] = 0.0
     stock['Stochastic SMA'] = 0.0
     stock['Consecutive'] = 1
-    stock['Consecutive Recommendation'] = "Test"
     stock['Volume Indicator'] = 0
 
 
+    # Transitions Matrix for emissions-based prediction
     probabilities = [0, 0, 0, 0, 0]
     transitions = [[0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0]]
     transitionsDict = {}
@@ -442,10 +458,10 @@ def stockHistory(symbol, startDate, endDate, code):
     classes = []
 
     for i in range(0, len(stock.index)):
-        # test.append(stock.iloc[i]['pctChange'])
         result = convert(stock.iloc[i]['pctChange'], probabilities)
         stock['delta'][i] = result[0]
         classes.append(result[2])
+        # Adds transitions to transitions matrix before producing probabilities
         if i > 0:
             transitionsDict[(result[0], stock['delta'][i - 1])] += 1
             if stock['delta'][i - 1] is "Very Much Up":
@@ -463,17 +479,14 @@ def stockHistory(symbol, startDate, endDate, code):
                 transitions[result[2]][4] += 1
                 sums += 1
 
-            # Not sure why there is a leakage here
-            # else:
-                # print(stock['delta'][i - 1])
         probabilities = result[1]
-        # stock.set_value(i, 'delta', convert(stock.iloc[i]['pctChange']))
+
 
     probabilitiesPct = []
     summed = probabilities[0] + probabilities[1] + probabilities[2] + probabilities[3] + probabilities[4]
     probabilitiesPct = [probabilities[0]/summed, probabilities[1]/summed, probabilities[2]/summed, probabilities[3]/summed, probabilities[4]/summed]
 
-    print(transitions)
+    # Updates stock data with indicators
     stock=ema(stock, 12, 'EMA')
     stock=ema(stock, 26, 'EMA')
     stock=macd(stock)
@@ -485,12 +498,15 @@ def stockHistory(symbol, startDate, endDate, code):
     stock=convergence(stock, 12)
     stock=convergence(stock, 26)
 
-    # print(stock)
     stock.to_csv("DataFiles/" + symbol + code + ".csv")
+
     return (stock, classes, transitions)
 
-
 def predictor(stock, conditionalProbabilityDistribution, period, date, transitions, indicator):
+    """This function predicts the stock price movement on a given date.  It is called in testing() and
+    is given the necessary information to make the prediction for the conditional probability classification
+    technique, the emissions model technique, and the naive benchmark techniques.  These techniques are
+    executed with an indicator input fed in from testing()."""
     prediction = "Neutral"
     system = "Default"
     dateDate = datetime.datetime.strptime(date, '%Y-%m-%d').date()
@@ -504,8 +520,8 @@ def predictor(stock, conditionalProbabilityDistribution, period, date, transitio
     while not is_business_day(dateDate):
         dateDate += 1
     date = dateDate
+    # We want to predict a given date's stock price movement given the previous day's indicator values
     yesterday = prev_weekday(date, period).strftime('%Y-%m-%d')
-    print(yesterday)
     if yesterday in stock['RSI']:
         pastChange = stock['delta'][yesterday]
         listIndex = deltaList.index(pastChange)
@@ -529,19 +545,25 @@ def predictor(stock, conditionalProbabilityDistribution, period, date, transitio
                 matrix = transitions[listIndex]
                 choice = max(enumerate(matrix), key = lambda x: x[1])[0]
 
-                # choices.append((delta, 1.0/len(deltaList)))
                 choices.append((deltaList[choice], 1.0))
 
+        # Conditional Probabilities Classification Prediction
         if indicator == 0:
             prediction = max(choices, key = lambda x: x[1])[0]
             system = "Conditional Probabilities"
+
+        # Emissions Model Prediction
         elif indicator == 1:
             matrix = transitions[listIndex]
             prediction = deltaList[max(enumerate(matrix), key = lambda x: x[1])[0]]
             system = "Emissions Model"
+
+        # First Naive Benchmark: Predict Last Change
         elif indicator == 2:
             prediction = pastChange
             system = "Naive (Last Change)"
+
+        # Second Naive Benchmark: Predict Opposite of Last Change
         elif indicator == 3:
             if pastChange == "Very Much Up" or pastChange == "Up":
                 prediction = "Down"
@@ -550,6 +572,9 @@ def predictor(stock, conditionalProbabilityDistribution, period, date, transitio
             else:
                 prediction = pastChange
             system = "Opposite"
+
+        # Third Naive Benchmark: Choose random value and predict using distribution of
+        # each direction historically
         elif indicator == 4:
             checkValue = random.random()
             upSum = sum(transitions[0]) + sum(transitions[1])
@@ -564,23 +589,30 @@ def predictor(stock, conditionalProbabilityDistribution, period, date, transitio
             else:
                 prediction = "Down"
 
+        # Fourth Naive Benchmark: Predict up always
         elif indicator == 5:
             prediction = "Up"
             system = "Only Up"
 
+        # Fifth naive benchmark: Predict down always
         elif indicator == 6:
             prediction = "Down"
             system = "Only Down"
 
         print(system + " Prediction: The price will move " + prediction + " on " + date.strftime('%Y-%m-%d'))
+
         if date.strftime('%Y-%m-%d') in stock['RSI']:
             realAction = stock['delta'][date.strftime('%Y-%m-%d')]
             print("True action: " + realAction)
-            # if prediction in realAction:
 
+            # If correct, return +1 correct, +1 total;
+            # else if incorrect, return +0 correct, +1 total;
+            # else (for whatever reason there is nothing to predict),
+            # return +0 correct, +0 total
             if 'Up' in prediction and 'Up' in realAction:
                 print("Accurate")
                 return (1.0, 1.0)
+
             elif 'Down' in prediction and 'Down' in realAction:
                 print("Accurate")
                 return (1.0, 1.0)
@@ -597,20 +629,36 @@ def predictor(stock, conditionalProbabilityDistribution, period, date, transitio
         return (0.0, 0.0)
 
 def testing():
+    """This function tests the conditional probability classification technique, the
+    emissions model technique, and the naive benchmark techniques."""
+
+    # Create folder for data files if not already existent
     if not os.path.exists("DataFiles/"):
         os.makedirs("DataFiles/")
+
+    # Prediction start data
     startDate = '2018-01-01'
     predictionDateString = startDate
     predictionDate = datetime.datetime.strptime(predictionDateString, '%Y-%m-%d').date()
+    # Prediction end date (as close to today as possible)
     finalPredictionDate = '2018-12-19'
+
+    # Some functions were built to allow for predictions n days into the future,
+    # but 1 should be the most accurate and what the trader looks to use
     period = 1
+
+    # Current data set (used for indicator values for current predictions)
     stockHistories = stockHistory(ticker, "2014-12-29", "2018-12-31", "Full")[0]
+
+    # Historical data set (used for training the probability matrices)
     items = stockHistory(ticker, "1990-01-01", "2017-12-31", "Historical")
+    # The actual financial data set
     pastHistory = items[0]
+    # A transitions matrix for the emissions model
     transitions = items[2]
     conditionalProbabilityDistribution = jointAnalysis(pastHistory, period)
 
-    # if predictionDate.weekday() <= 4:
+    # Predictions and accuracy
     conditionalCorrect = 0.0
     conditionalTotal = 0.0
     transitionsCorrect = 0.0
@@ -689,52 +737,4 @@ def testing():
     accuracyDict["Down"] = ["Correct: " + str(downCorrect), "Total: " + str(downTotal), "Accuracy: " + str(downCorrect/downTotal)]
     pd.DataFrame([accuracyDict], index = [0]).to_csv("DataFiles/" + ticker + ' Accuracy Log With R, S, M, C, V, RT, MT, 12-26EMA.csv', index=False)
 
-predictionDate = "2018-01-02"
-forecastingPeriod = 1
-endDate = prev_weekday(datetime.datetime.strptime(predictionDate, '%Y-%m-%d').date(), forecastingPeriod)
-print(endDate)
-# stock = pdr.get_data_yahoo(ticker, start="2010-01-01", end=endDate)
-
 testing()
-
-# """ Naives Bayes Classification """
-#
-# stock, classes = stockHistory(ticker, "2010-01-01", "2018-12-31")
-#
-# # drop high, low, close, and EMA columns since not useful for NB
-# optstock = stock.drop(['High','Low','Close','delta','EMA12','EMA26'], axis=1)
-# # optstock = optstock.drop(optstock.index[0:30])
-#
-# # Delete last row since can have NaN values
-# optstock=optstock.drop(optstock.index[-1])
-# classes = classes[:-1]
-#
-# # get 80% index to divide data into training and testing sets for fitting
-# cutat = int(len(optstock.index) / 10) * 8
-# trainingX=optstock.drop(optstock.index[cutat:])
-# testX=optstock.drop(optstock.index[0:cutat])
-# # trainingX = optstock[:cutat]
-# # testX = optstock[cutat:]
-#
-# trainingclasses = classes[:cutat]
-# testclasses = classes[cutat:]
-# # print(len(testclasses))
-# # print(stock.head())
-#
-# # Use sklearn if possible to fit the model, test it, and get its accuracy. If not, implement our own NB and CPTs.
-# NB = GaussianNB()
-# # print(optstock)
-# # print(trainingX)
-# # print(trainingclasses)
-# NB.fit(trainingX, trainingclasses)
-# predictedclasses = NB.predict(testX)
-#
-# print("Accuracy:")
-# print (metrics.accuracy_score(testclasses, predictedclasses))
-
-# If we implement the NB on our own:
-# 1) Training: count the number of rows with each of the 5 perc_change classes
-#              build a dictionary with all the possible values/intervals for each feature (that requires discretizing the features as well)
-#              count the occurences of each features interval in each perc_change class
-#              fit the model using the same equation as in q5 of NaiveBayes.py
-#              test it on (testX, predictedclasses) in the same way as q6
