@@ -13,6 +13,7 @@ from sklearn.naive_bayes import GaussianNB
 
 import random
 
+import os
 
 import fix_yahoo_finance as yf, numpy as np
 yf.pdr_override() # <== that's all it takes :-)
@@ -596,6 +597,8 @@ def predictor(stock, conditionalProbabilityDistribution, period, date, transitio
         return (0.0, 0.0)
 
 def testing():
+    if not os.path.exists("DataFiles/"):
+        os.makedirs("DataFiles/")
     startDate = '2018-01-01'
     predictionDateString = startDate
     predictionDate = datetime.datetime.strptime(predictionDateString, '%Y-%m-%d').date()
